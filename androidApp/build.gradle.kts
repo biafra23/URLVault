@@ -8,6 +8,11 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Allow version to be overridden from the command line (used by the release CI workflow).
+// e.g. ./gradlew assembleRelease -PappVersion=0.1.0 -PappVersionCode=2
+val appVersion: String = project.findProperty("appVersion")?.toString() ?: "1.0.0"
+val appVersionCode: Int = project.findProperty("appVersionCode")?.toString()?.toIntOrNull() ?: 1
+
 android {
     namespace = "com.biafra23.anchorvault.android"
     compileSdk = 36
@@ -16,10 +21,28 @@ android {
         applicationId = "com.biafra23.anchorvault"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = appVersionCode
+        versionName = appVersion
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        create("release") {
+            // Populated from environment variables injected by the release CI workflow.
+            // The keystore is decoded from a base64 secret into a system temp file so it
+            // is never placed in the cached build directory, and is deleted on JVM exit.
+            val keystoreB64 = System.getenv("ANDROID_KEYSTORE_BASE64")
+            if (keystoreB64 != null) {
+                val keystoreFile = java.nio.file.Files.createTempFile("anchorvault-", ".keystore").toFile()
+                keystoreFile.writeBytes(java.util.Base64.getDecoder().decode(keystoreB64))
+                keystoreFile.deleteOnExit()
+                storeFile = keystoreFile
+                storePassword = System.getenv("ANDROID_STORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: ""
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: ""
+            }
+        }
     }
 
     buildTypes {
@@ -30,6 +53,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            val hasSigningSecrets = System.getenv("ANDROID_KEYSTORE_BASE64") != null
+            signingConfig = if (hasSigningSecrets) signingConfigs.getByName("release") else null
         }
     }
 

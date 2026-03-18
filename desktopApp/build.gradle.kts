@@ -7,6 +7,10 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// Allow version to be overridden from the command line (used by the release CI workflow).
+// e.g. ./gradlew packageDeb -PappVersion=0.1.0
+val appVersion: String = project.findProperty("appVersion")?.toString() ?: "1.0.0"
+
 kotlin {
     jvm("desktop")
 
@@ -32,7 +36,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "AnchorVault"
-            packageVersion = "1.0.0"
+            packageVersion = appVersion
             description = "Secure bookmark storage with Bitwarden sync"
             copyright = "© 2024 AnchorVault"
 
