@@ -56,6 +56,9 @@ android {
 dependencies {
     implementation(project(":shared"))
 
+    // Activity + Compose
+    implementation(libs.activity.compose)
+
     // Room
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
@@ -67,8 +70,6 @@ dependencies {
 
     // Lifecycle
     implementation(libs.lifecycle.viewmodel.ktx)
-    implementation(libs.lifecycle.viewmodel.compose)
-    implementation(libs.lifecycle.runtime.compose)
 
     // Koin
     implementation(libs.koin.android)

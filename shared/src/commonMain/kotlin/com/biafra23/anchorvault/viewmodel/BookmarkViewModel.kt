@@ -6,12 +6,10 @@ import com.biafra23.anchorvault.model.Bookmark
 import com.biafra23.anchorvault.repository.BookmarkRepository
 import com.biafra23.anchorvault.sync.BitwardenCredentials
 import com.biafra23.anchorvault.sync.BitwardenSyncService
-import com.biafra23.anchorvault.sync.SyncResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -41,6 +39,9 @@ sealed class SyncStatus {
     data class Error(val message: String) : SyncStatus()
 }
 
+/** Internal holder for tag/search filter parameters. */
+private data class FilterState(val selectedTag: String?, val searchQuery: String)
+
 /**
  * ViewModel for managing bookmark list state and user interactions.
  */
@@ -55,25 +56,34 @@ class BookmarkViewModel(
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     private val _errorMessage = MutableStateFlow<String?>(null)
 
+    /**
+     * Combines tag and search query into a single flow so that [flatMapLatest] below
+     * correctly reacts to changes in either parameter.
+     */
+    private val _filterState: StateFlow<FilterState> = combine(
+        _selectedTag, _searchQuery
+    ) { tag, query -> FilterState(tag, query) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = FilterState(null, "")
+        )
+
     val uiState: StateFlow<BookmarkListUiState> = combine(
-        _selectedTag.flatMapLatest { tag ->
-            if (_searchQuery.value.isBlank()) {
-                repository.getBookmarks(tag)
-            } else {
-                repository.searchBookmarks(_searchQuery.value)
-            }
+        _filterState.flatMapLatest { (tag, query) ->
+            if (query.isBlank()) repository.getBookmarks(tag)
+            else repository.searchBookmarks(query)
         },
         repository.getAllTags(),
-        _selectedTag,
-        _searchQuery,
+        _filterState,
         _syncStatus,
         _errorMessage
-    ) { bookmarks, allTags, selectedTag, searchQuery, syncStatus, errorMessage ->
+    ) { bookmarks, allTags, filterState, syncStatus, errorMessage ->
         BookmarkListUiState(
             bookmarks = bookmarks,
             allTags = allTags,
-            selectedTag = selectedTag,
-            searchQuery = searchQuery,
+            selectedTag = filterState.selectedTag,
+            searchQuery = filterState.searchQuery,
             syncStatus = syncStatus,
             errorMessage = errorMessage
         )
@@ -149,3 +159,4 @@ class BookmarkViewModel(
         }
     }
 }
+

@@ -49,6 +49,7 @@ import com.biafra23.anchorvault.model.Bookmark
 @Composable
 fun AddEditBookmarkScreen(
     existingBookmark: Bookmark? = null,
+    prefilledUrl: String? = null,
     existingTags: List<String> = emptyList(),
     onSave: (Bookmark) -> Unit,
     onCancel: () -> Unit,
@@ -56,7 +57,7 @@ fun AddEditBookmarkScreen(
 ) {
     val isEditMode = existingBookmark != null
 
-    var url by remember { mutableStateOf(existingBookmark?.url ?: "") }
+    var url by remember { mutableStateOf(existingBookmark?.url ?: prefilledUrl ?: "") }
     var title by remember { mutableStateOf(existingBookmark?.title ?: "") }
     var description by remember { mutableStateOf(existingBookmark?.description ?: "") }
     var isFavorite by remember { mutableStateOf(existingBookmark?.isFavorite ?: false) }
@@ -133,7 +134,7 @@ fun AddEditBookmarkScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Favourite",
+                    text = "Favorite",
                     style = MaterialTheme.typography.bodyLarge
                 )
                 Switch(
@@ -229,7 +230,7 @@ fun AddEditBookmarkScreen(
                         "https://$url"
                     } else url
 
-                    val now = System.currentTimeMillis()
+                    val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
                     val bookmark = Bookmark(
                         id = existingBookmark?.id ?: generateId(),
                         url = normalizedUrl,
@@ -254,5 +255,6 @@ fun AddEditBookmarkScreen(
 private fun generateId(): String {
     val chars = "abcdefghijklmnopqrstuvwxyz0123456789"
     val random = (0 until 8).map { chars.random() }.joinToString("")
-    return "${System.currentTimeMillis()}-$random"
+    val timestamp = kotlin.time.Clock.System.now().toEpochMilliseconds()
+    return "$timestamp-$random"
 }

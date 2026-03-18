@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
                         val uiState = bookmarkViewModel.uiState.value
                         AddEditBookmarkScreen(
                             existingBookmark = screen.existing,
+                            prefilledUrl = screen.prefilledUrl,
                             existingTags = uiState.allTags,
                             onSave = { bookmark ->
                                 if (screen.existing != null) {
