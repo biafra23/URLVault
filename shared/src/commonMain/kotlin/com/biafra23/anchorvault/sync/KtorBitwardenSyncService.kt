@@ -133,6 +133,9 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         }
     }
 
+    @Serializable
+    private data class FolderRequest(val name: String)
+
     private suspend fun getOrCreateFolder(
         creds: BitwardenCredentials,
         token: String,
@@ -149,7 +152,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                 val created: FolderResponse = httpClient.post("${creds.apiBaseUrl}/folders") {
                     bearerAuth(token)
                     contentType(ContentType.Application.Json)
-                    setBody(mapOf("name" to folderName))
+                    setBody(FolderRequest(folderName))
                 }.body()
                 created.id
             }
@@ -174,6 +177,18 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         }
     }
 
+    @Serializable
+    private data class SecureNoteType(val type: Int = 0)
+
+    @Serializable
+    private data class CipherRequest(
+        val type: Int,
+        val name: String,
+        val notes: String?,
+        val folderId: String? = null,
+        val secureNote: SecureNoteType = SecureNoteType()
+    )
+
     private suspend fun upsertVaultItem(
         creds: BitwardenCredentials,
         token: String,
@@ -187,13 +202,12 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
             val existingId = existingItems.data
                 .firstOrNull { it.folderId == folderId && it.name == item.name }?.id
 
-            val body = buildMap {
-                put("type", item.type)
-                put("name", item.name)
-                put("notes", item.notes)
-                if (folderId != null) put("folderId", folderId)
-                put("secureNote", mapOf("type" to 0))
-            }
+            val body = CipherRequest(
+                type = item.type,
+                name = item.name,
+                notes = item.notes,
+                folderId = folderId
+            )
 
             if (existingId != null) {
                 httpClient.put("${creds.apiBaseUrl}/ciphers/$existingId") {
