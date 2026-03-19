@@ -1,5 +1,5 @@
 # AnchorVault
-Store your Bookmarks in BitWarden
+Store your Bookmarks in Bitwarden
 
 ## Overview
 
