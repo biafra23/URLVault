@@ -26,6 +26,8 @@ render.experimental.xml
 # Keystore files
 *.jks
 *.keystore
+# The shared debug keystore is intentionally tracked for consistent signing across machines
+!androidApp/debug.keystore
 
 # Google Services (e.g. APIs or Firebase)
 google-services.json
