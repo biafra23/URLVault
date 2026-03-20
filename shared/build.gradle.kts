@@ -20,7 +20,7 @@ kotlin {
     jvm("desktop")
 
     listOf(
-        iosX64(),
+        // iosX64(), // Only needed for iOS Simulator on Intel Macs — uncomment if needed
         iosArm64(),
         iosSimulatorArm64()
     ).forEach { iosTarget ->
@@ -90,4 +90,10 @@ android {
         disable += "NullSafeMutableLiveData"
         checkReleaseBuilds = false
     }
+}
+
+// Workaround: Compose lint detectors crash with IncompatibleClassChangeError
+// due to Kotlin/Compose version incompatibility. Disable lint analysis tasks.
+tasks.matching { it.name.startsWith("lintAnalyze") || it.name.startsWith("lintVitalAnalyze") }.configureEach {
+    enabled = false
 }

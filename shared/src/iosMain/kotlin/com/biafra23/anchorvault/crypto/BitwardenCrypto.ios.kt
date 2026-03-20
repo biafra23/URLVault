@@ -1,11 +1,13 @@
 package com.biafra23.anchorvault.crypto
 
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.UByteVar
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
+import kotlinx.cinterop.convert
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
-import kotlinx.cinterop.refTo
+import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.value
 import platform.CoreCrypto.CCHmac
@@ -29,21 +31,20 @@ import platform.posix.size_tVar
 actual object CryptoProvider {
     actual fun pbkdf2Sha256(password: ByteArray, salt: ByteArray, iterations: Int, keyLengthBytes: Int): ByteArray {
         val derivedKey = ByteArray(keyLengthBytes)
-        password.usePinned { passwordPin ->
-            salt.usePinned { saltPin ->
-                derivedKey.usePinned { keyPin ->
-                    CCKeyDerivationPBKDF(
-                        kCCPBKDF2,
-                        passwordPin.addressOf(0).reinterpret(),
-                        password.size.toULong(),
-                        saltPin.addressOf(0).reinterpret(),
-                        salt.size.toULong(),
-                        kCCPRFHmacAlgSHA256,
-                        iterations.toUInt(),
-                        keyPin.addressOf(0).reinterpret(),
-                        keyLengthBytes.toULong()
-                    )
-                }
+        val passwordString = password.decodeToString()
+        salt.usePinned { saltPin ->
+            derivedKey.usePinned { keyPin ->
+                CCKeyDerivationPBKDF(
+                    kCCPBKDF2,
+                    passwordString,
+                    password.size.convert(),
+                    saltPin.addressOf(0).reinterpret<UByteVar>(),
+                    salt.size.convert(),
+                    kCCPRFHmacAlgSHA256,
+                    iterations.toUInt(),
+                    keyPin.addressOf(0).reinterpret<UByteVar>(),
+                    keyLengthBytes.convert()
+                )
             }
         }
         return derivedKey
@@ -57,9 +58,9 @@ actual object CryptoProvider {
                     CCHmac(
                         kCCHmacAlgSHA256,
                         keyPin.addressOf(0),
-                        key.size.toULong(),
+                        key.size.convert(),
                         dataPin.addressOf(0),
-                        data.size.toULong(),
+                        data.size.convert(),
                         macPin.addressOf(0)
                     )
                 }
@@ -69,7 +70,7 @@ actual object CryptoProvider {
     }
 
     actual fun aes256CbcDecrypt(key: ByteArray, iv: ByteArray, ciphertext: ByteArray): ByteArray = memScoped {
-        val outputSize = ciphertext.size + kCCKeySizeAES256
+        val outputSize = ciphertext.size + kCCKeySizeAES256.toInt()
         val output = ByteArray(outputSize)
         val dataOutMoved = alloc<size_tVar>()
         key.usePinned { keyPin ->
@@ -81,12 +82,12 @@ actual object CryptoProvider {
                             kCCAlgorithmAES128,
                             kCCOptionPKCS7Padding,
                             keyPin.addressOf(0),
-                            kCCKeySizeAES256.toULong(),
+                            kCCKeySizeAES256.convert(),
                             ivPin.addressOf(0),
                             ctPin.addressOf(0),
-                            ciphertext.size.toULong(),
+                            ciphertext.size.convert(),
                             outPin.addressOf(0),
-                            outputSize.toULong(),
+                            outputSize.convert(),
                             dataOutMoved.ptr
                         )
                         require(result == kCCSuccess) { "AES decrypt failed with code $result" }
@@ -98,7 +99,7 @@ actual object CryptoProvider {
     }
 
     actual fun aes256CbcEncrypt(key: ByteArray, iv: ByteArray, plaintext: ByteArray): ByteArray = memScoped {
-        val outputSize = plaintext.size + kCCKeySizeAES256
+        val outputSize = plaintext.size + kCCKeySizeAES256.toInt()
         val output = ByteArray(outputSize)
         val dataOutMoved = alloc<size_tVar>()
         key.usePinned { keyPin ->
@@ -110,12 +111,12 @@ actual object CryptoProvider {
                             kCCAlgorithmAES128,
                             kCCOptionPKCS7Padding,
                             keyPin.addressOf(0),
-                            kCCKeySizeAES256.toULong(),
+                            kCCKeySizeAES256.convert(),
                             ivPin.addressOf(0),
                             ptPin.addressOf(0),
-                            plaintext.size.toULong(),
+                            plaintext.size.convert(),
                             outPin.addressOf(0),
-                            outputSize.toULong(),
+                            outputSize.convert(),
                             dataOutMoved.ptr
                         )
                         require(result == kCCSuccess) { "AES encrypt failed with code $result" }
@@ -129,7 +130,7 @@ actual object CryptoProvider {
     actual fun randomBytes(length: Int): ByteArray {
         val bytes = ByteArray(length)
         bytes.usePinned { pin ->
-            SecRandomCopyBytes(kSecRandomDefault, length.toULong(), pin.addressOf(0))
+            SecRandomCopyBytes(kSecRandomDefault, length.convert(), pin.addressOf(0))
         }
         return bytes
     }
