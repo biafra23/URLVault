@@ -36,9 +36,9 @@ android {
             // are signed identically regardless of build machine, allowing
             // seamless updates without reinstalling.
             storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            storePassword = project.property("DEBUG_STORE_PASSWORD") as String
+            keyAlias = project.property("DEBUG_KEY_ALIAS") as String
+            keyPassword = project.property("DEBUG_KEY_PASSWORD") as String
         }
         create("release") {
             // Populated from environment variables injected by the release CI workflow.
