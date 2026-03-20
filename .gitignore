@@ -32,3 +32,12 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Kotlin
+.kotlin/
+
+# Xcode user data
+iosApp/iosApp.xcodeproj/xcuserdata/
+
+# OS files
+.DS_Store

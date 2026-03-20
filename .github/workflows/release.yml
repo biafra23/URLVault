@@ -1,0 +1,218 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.*"
+
+permissions:
+  contents: write   # required to create a GitHub Release and upload assets
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Android – signed release APK
+  # ─────────────────────────────────────────────
+  android:
+    name: Build Android (release APK)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Derive version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"          # e.g. v0.1.0 or v1.0.0-beta
+          VER="${TAG#v}"                    # e.g. 0.1.0 or 1.0.0-beta
+          # Strip any pre-release suffix before calculating the numeric versionCode
+          VER_NUMERIC="${VER%%-*}"          # e.g. 0.1.0
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VER_NUMERIC"
+          CODE=$(( MAJOR * 1000000 + MINOR * 1000 + ${PATCH:-0} ))
+          # Ensure versionCode is at least 1 (Android rejects 0)
+          if [ "$CODE" -lt 1 ]; then CODE=1; fi
+          echo "version=$VER"      >> "$GITHUB_OUTPUT"
+          echo "versionCode=$CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Build signed release APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew :androidApp:assembleRelease --no-daemon \
+            -PappVersion=${{ steps.version.outputs.version }} \
+            -PappVersionCode=${{ steps.version.outputs.versionCode }}
+
+      - name: Rename APK
+        run: |
+          VER="${{ steps.version.outputs.version }}"
+          DST="AnchorVault-${VER}.apk"
+          # find the single release APK and rename it (handles both signed and unsigned output names)
+          find androidApp/build/outputs/apk/release -name "*.apk" -print0 \
+            | head -z -n 1 \
+            | xargs -0 -I{} mv {} "$DST"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: AnchorVault-*.apk
+
+  # ─────────────────────────────────────────────
+  # Desktop – Linux (.deb)
+  # ─────────────────────────────────────────────
+  desktop-linux:
+    name: Build Desktop (Linux .deb)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Package .deb
+        run: |
+          ./gradlew :desktopApp:packageDeb --no-daemon \
+            -PappVersion=${{ steps.version.outputs.version }}
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: desktopApp/build/compose/binaries/main/deb/*.deb
+
+  # ─────────────────────────────────────────────
+  # Desktop – Windows (.msi)
+  # ─────────────────────────────────────────────
+  desktop-windows:
+    name: Build Desktop (Windows .msi)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Derive version from tag
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Package .msi
+        shell: bash
+        run: |
+          ./gradlew :desktopApp:packageMsi --no-daemon \
+            -PappVersion=${{ steps.version.outputs.version }}
+
+      - name: Upload .msi artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: desktopApp/build/compose/binaries/main/msi/*.msi
+
+  # ─────────────────────────────────────────────
+  # Desktop – macOS (.dmg)
+  # ─────────────────────────────────────────────
+  desktop-macos:
+    name: Build Desktop (macOS .dmg)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Package .dmg
+        run: |
+          ./gradlew :desktopApp:packageDmg --no-daemon \
+            -PappVersion=${{ steps.version.outputs.version }}
+
+      - name: Upload .dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: desktopApp/build/compose/binaries/main/dmg/*.dmg
+
+  # ─────────────────────────────────────────────
+  # GitHub Release – assemble all artifacts
+  # ─────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [android, desktop-linux, desktop-windows, desktop-macos]
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: List assets
+        run: ls -lh release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "AnchorVault ${{ github.ref_name }}"
+          body: |
+            ## AnchorVault ${{ github.ref_name }}
+
+            ### Downloads
+            | Platform | File |
+            |---|---|
+            | Android | `AnchorVault-*.apk` |
+            | Linux | `*.deb` |
+            | Windows | `*.msi` |
+            | macOS | `*.dmg` |
+
+            ### Android signing
+            The APK is signed when the `ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`,
+            `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` repository secrets are configured.
+            If the secrets are absent the APK will be unsigned.
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: release-assets/*
