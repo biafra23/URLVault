@@ -1,5 +1,6 @@
 package com.biafra23.anchorvault.desktop
 
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -8,6 +9,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.biafra23.anchorvault.autotag.createAutoTagService
 import com.biafra23.anchorvault.model.Bookmark
 import com.biafra23.anchorvault.sync.BitwardenCredentials
 import com.biafra23.anchorvault.sync.createBitwardenSyncService
@@ -32,12 +34,14 @@ fun main() = application {
             }
         }
     }
-    val viewModel = remember { BookmarkViewModel(repository, syncService) }
+    val autoTagService = remember { createAutoTagService() }
+    val viewModel = remember { BookmarkViewModel(repository, syncService, autoTagService) }
 
     Window(
         onCloseRequest = {
             repository.close()
             syncService.close()
+            autoTagService.close()
             exitApplication()
         },
         title = "AnchorVault",
@@ -45,6 +49,7 @@ fun main() = application {
     ) {
         AnchorVaultTheme {
             var currentScreen by remember { mutableStateOf<DesktopScreen>(DesktopScreen.List) }
+            var autoTagEnabled by remember { mutableStateOf(prefs.loadAutoTagEnabled()) }
 
             when (val screen = currentScreen) {
                 is DesktopScreen.List -> BookmarkListScreen(
@@ -56,9 +61,14 @@ fun main() = application {
 
                 is DesktopScreen.AddEdit -> {
                     val uiState = viewModel.uiState.value
+                    val autoTagState by viewModel.autoTagState.collectAsState()
                     AddEditBookmarkScreen(
                         existingBookmark = screen.existing,
                         existingTags = uiState.allTags,
+                        autoTagEnabled = autoTagEnabled,
+                        autoTagState = autoTagState,
+                        onAutoTag = { url -> viewModel.fetchAutoTags(url) },
+                        onAutoTagConsumed = { viewModel.clearAutoTagState() },
                         onSave = { bookmark ->
                             if (screen.existing != null) {
                                 viewModel.updateBookmark(bookmark)
@@ -74,6 +84,11 @@ fun main() = application {
                 is DesktopScreen.Settings -> {
                     SettingsScreen(
                         currentCredentials = prefs.loadCredentials(),
+                        autoTagEnabled = autoTagEnabled,
+                        onAutoTagEnabledChanged = { enabled ->
+                            autoTagEnabled = enabled
+                            prefs.saveAutoTagEnabled(enabled)
+                        },
                         onSaveCredentials = { credentials: BitwardenCredentials ->
                             prefs.saveCredentials(credentials)
                             viewModel.configureBitwarden(credentials)

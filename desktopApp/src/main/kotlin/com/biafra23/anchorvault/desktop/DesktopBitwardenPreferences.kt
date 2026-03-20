@@ -36,4 +36,18 @@ class DesktopBitwardenPreferences {
     fun clearCredentials() {
         if (credentialsFile.exists()) credentialsFile.delete()
     }
+
+    fun saveAutoTagEnabled(enabled: Boolean) {
+        settingsFile.writeText(json.encodeToString(mapOf("autoTagEnabled" to enabled.toString())))
+    }
+
+    fun loadAutoTagEnabled(): Boolean {
+        if (!settingsFile.exists()) return false
+        return runCatching {
+            val map = json.decodeFromString<Map<String, String>>(settingsFile.readText())
+            map["autoTagEnabled"]?.toBooleanStrictOrNull() ?: false
+        }.getOrElse { false }
+    }
+
+    private val settingsFile: java.io.File = java.io.File(credentialsFile.parentFile, "settings.json")
 }

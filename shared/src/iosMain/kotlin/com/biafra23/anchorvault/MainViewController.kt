@@ -1,10 +1,12 @@
 package com.biafra23.anchorvault
 
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.window.ComposeUIViewController
+import com.biafra23.anchorvault.autotag.createAutoTagService
 import com.biafra23.anchorvault.database.IosBookmarkRepository
 import com.biafra23.anchorvault.model.Bookmark
 import com.biafra23.anchorvault.sync.BitwardenCredentials
@@ -20,10 +22,12 @@ import platform.UIKit.UIViewController
 fun MainViewController(): UIViewController = ComposeUIViewController {
     val repository = remember { IosBookmarkRepository() }
     val syncService = remember { createBitwardenSyncService() }
-    val viewModel = remember { BookmarkViewModel(repository, syncService) }
+    val autoTagService = remember { createAutoTagService() }
+    val viewModel = remember { BookmarkViewModel(repository, syncService, autoTagService) }
 
     AnchorVaultTheme {
         var currentScreen by remember { mutableStateOf<IosScreen>(IosScreen.List) }
+        var autoTagEnabled by remember { mutableStateOf(false) }
 
         when (val screen = currentScreen) {
             is IosScreen.List -> BookmarkListScreen(
@@ -35,9 +39,14 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
 
             is IosScreen.AddEdit -> {
                 val uiState = viewModel.uiState.value
+                val autoTagState by viewModel.autoTagState.collectAsState()
                 AddEditBookmarkScreen(
                     existingBookmark = screen.existing,
                     existingTags = uiState.allTags,
+                    autoTagEnabled = autoTagEnabled,
+                    autoTagState = autoTagState,
+                    onAutoTag = { url -> viewModel.fetchAutoTags(url) },
+                    onAutoTagConsumed = { viewModel.clearAutoTagState() },
                     onSave = { bookmark ->
                         if (screen.existing != null) {
                             viewModel.updateBookmark(bookmark)
@@ -53,6 +62,8 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
             is IosScreen.Settings -> {
                 SettingsScreen(
                     currentCredentials = null,
+                    autoTagEnabled = autoTagEnabled,
+                    onAutoTagEnabledChanged = { autoTagEnabled = it },
                     onSaveCredentials = { credentials: BitwardenCredentials ->
                         viewModel.configureBitwarden(credentials)
                         currentScreen = IosScreen.List

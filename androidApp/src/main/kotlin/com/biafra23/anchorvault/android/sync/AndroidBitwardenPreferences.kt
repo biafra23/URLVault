@@ -42,8 +42,17 @@ class AndroidBitwardenPreferences(context: Context) {
         prefs.edit().remove(KEY_CREDENTIALS).apply()
     }
 
+    fun saveAutoTagEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_TAG_ENABLED, enabled).apply()
+    }
+
+    fun loadAutoTagEnabled(): Boolean {
+        return prefs.getBoolean(KEY_AUTO_TAG_ENABLED, false)
+    }
+
     companion object {
         private const val PREFS_NAME = "anchorvault_bitwarden_encrypted"
         private const val KEY_CREDENTIALS = "credentials"
+        private const val KEY_AUTO_TAG_ENABLED = "auto_tag_enabled"
     }
 }

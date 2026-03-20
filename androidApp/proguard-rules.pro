@@ -40,3 +40,8 @@
 
 # Koin — keep core reflection needs only
 -keep class org.koin.core.** { *; }
+
+# Google Tink (transitive dep from security-crypto) — annotation-only classes not bundled at runtime
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn javax.annotation.**
+-dontwarn javax.annotation.concurrent.**

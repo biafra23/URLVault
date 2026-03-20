@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AnchorVaultTheme {
+                var autoTagEnabled by remember { mutableStateOf(bitwardenPrefs.loadAutoTagEnabled()) }
 
                 when (val screen = currentScreen) {
                     is Screen.List -> BookmarkListScreen(
@@ -52,10 +54,15 @@ class MainActivity : ComponentActivity() {
 
                     is Screen.AddEdit -> {
                         val uiState = bookmarkViewModel.uiState.value
+                        val autoTagState by bookmarkViewModel.autoTagState.collectAsState()
                         AddEditBookmarkScreen(
                             existingBookmark = screen.existing,
                             prefilledUrl = screen.prefilledUrl,
                             existingTags = uiState.allTags,
+                            autoTagEnabled = autoTagEnabled,
+                            autoTagState = autoTagState,
+                            onAutoTag = { url -> bookmarkViewModel.fetchAutoTags(url) },
+                            onAutoTagConsumed = { bookmarkViewModel.clearAutoTagState() },
                             onSave = { bookmark ->
                                 if (screen.existing != null) {
                                     bookmarkViewModel.updateBookmark(bookmark)
@@ -71,6 +78,11 @@ class MainActivity : ComponentActivity() {
                     is Screen.Settings -> {
                         SettingsScreen(
                             currentCredentials = bitwardenPrefs.loadCredentials(),
+                            autoTagEnabled = autoTagEnabled,
+                            onAutoTagEnabledChanged = { enabled ->
+                                autoTagEnabled = enabled
+                                bitwardenPrefs.saveAutoTagEnabled(enabled)
+                            },
                             onSaveCredentials = { credentials: BitwardenCredentials ->
                                 bitwardenPrefs.saveCredentials(credentials)
                                 bookmarkViewModel.configureBitwarden(credentials)

@@ -41,7 +41,7 @@ jobs:
         with:
           name: android-debug-apk
           path: androidApp/build/outputs/apk/debug/*.apk
-          retention-days: 7
+          retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
 
   build-desktop:
     name: Build Desktop (Linux)

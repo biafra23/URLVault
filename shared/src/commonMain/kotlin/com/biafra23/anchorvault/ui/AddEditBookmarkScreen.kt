@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
@@ -26,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.biafra23.anchorvault.model.Bookmark
+import com.biafra23.anchorvault.viewmodel.AutoTagState
 
 /**
  * Screen for adding or editing a bookmark.
@@ -43,6 +47,10 @@ import com.biafra23.anchorvault.model.Bookmark
  * @param existingTags     All available tags for suggestion chips.
  * @param onSave           Called with the resulting [Bookmark] when the user confirms.
  * @param onCancel         Called when the user dismisses the screen.
+ * @param autoTagEnabled   When true, shows the "Auto-tag" button.
+ * @param autoTagState     Current state of the auto-tag operation.
+ * @param onAutoTag        Called with the URL when the user taps "Auto-tag".
+ * @param onAutoTagConsumed Called after auto-tag results have been applied.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -52,6 +60,10 @@ fun AddEditBookmarkScreen(
     existingTags: List<String> = emptyList(),
     onSave: (Bookmark) -> Unit,
     onCancel: () -> Unit,
+    autoTagEnabled: Boolean = false,
+    autoTagState: AutoTagState = AutoTagState.Idle,
+    onAutoTag: ((String) -> Unit)? = null,
+    onAutoTagConsumed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isEditMode = existingBookmark != null
@@ -65,6 +77,25 @@ fun AddEditBookmarkScreen(
     }}
     var newTagInput by remember { mutableStateOf("") }
     var urlError by remember { mutableStateOf<String?>(null) }
+    var autoTagError by remember { mutableStateOf<String?>(null) }
+
+    // Apply auto-tag results when they arrive
+    LaunchedEffect(autoTagState) {
+        when (autoTagState) {
+            is AutoTagState.Success -> {
+                autoTagError = null
+                autoTagState.tags.forEach { tag ->
+                    if (!selectedTags.contains(tag)) selectedTags.add(tag)
+                }
+                onAutoTagConsumed()
+            }
+            is AutoTagState.Error -> {
+                autoTagError = autoTagState.message
+                onAutoTagConsumed()
+            }
+            else -> {}
+        }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -147,6 +178,40 @@ fun AddEditBookmarkScreen(
                 text = "Tags",
                 style = MaterialTheme.typography.titleSmall
             )
+
+            // Auto-tag button (only visible when enabled in settings)
+            if (autoTagEnabled && onAutoTag != null) {
+                OutlinedButton(
+                    onClick = {
+                        val targetUrl = if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                            "https://$url"
+                        } else url
+                        autoTagError = null
+                        onAutoTag(targetUrl)
+                    },
+                    enabled = url.isNotBlank() && autoTagState !is AutoTagState.Loading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (autoTagState is AutoTagState.Loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Fetching tags...")
+                    } else {
+                        Text("Auto-tag from URL")
+                    }
+                }
+
+                if (autoTagError != null) {
+                    Text(
+                        text = autoTagError!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
 
             // New tag input
             Row(

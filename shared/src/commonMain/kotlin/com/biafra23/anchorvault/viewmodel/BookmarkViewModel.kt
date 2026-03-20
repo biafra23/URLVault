@@ -2,6 +2,7 @@ package com.biafra23.anchorvault.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.biafra23.anchorvault.autotag.AutoTagService
 import com.biafra23.anchorvault.model.Bookmark
 import com.biafra23.anchorvault.repository.BookmarkRepository
 import com.biafra23.anchorvault.sync.BitwardenCredentials
@@ -10,6 +11,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -41,6 +43,16 @@ sealed class SyncStatus {
     data class Error(val message: String) : SyncStatus()
 }
 
+/**
+ * Represents the current state of an auto-tag operation.
+ */
+sealed class AutoTagState {
+    data object Idle : AutoTagState()
+    data object Loading : AutoTagState()
+    data class Success(val tags: List<String>) : AutoTagState()
+    data class Error(val message: String) : AutoTagState()
+}
+
 /** Internal holder for tag/search filter parameters. */
 private data class FilterState(val selectedTag: String?, val searchQuery: String)
 
@@ -50,13 +62,17 @@ private data class FilterState(val selectedTag: String?, val searchQuery: String
 @OptIn(ExperimentalCoroutinesApi::class)
 class BookmarkViewModel(
     private val repository: BookmarkRepository,
-    private val syncService: BitwardenSyncService
+    private val syncService: BitwardenSyncService,
+    private val autoTagService: AutoTagService? = null
 ) : ViewModel() {
 
     private val _selectedTag = MutableStateFlow<String?>(null)
     private val _searchQuery = MutableStateFlow("")
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     private val _errorMessage = MutableStateFlow<String?>(null)
+    private val _autoTagState = MutableStateFlow<AutoTagState>(AutoTagState.Idle)
+
+    val autoTagState: StateFlow<AutoTagState> = _autoTagState.asStateFlow()
 
     /**
      * Combines tag and search query into a single flow so that [flatMapLatest] below
@@ -159,6 +175,29 @@ class BookmarkViewModel(
                 }
             )
         }
+    }
+
+    fun fetchAutoTags(url: String) {
+        val service = autoTagService ?: return
+        viewModelScope.launch {
+            _autoTagState.value = AutoTagState.Loading
+            service.extractTags(url).fold(
+                onSuccess = { tags ->
+                    _autoTagState.value = if (tags.isEmpty()) {
+                        AutoTagState.Error("No tags could be extracted from this URL")
+                    } else {
+                        AutoTagState.Success(tags)
+                    }
+                },
+                onFailure = { e ->
+                    _autoTagState.value = AutoTagState.Error(e.message ?: "Failed to fetch tags")
+                }
+            )
+        }
+    }
+
+    fun clearAutoTagState() {
+        _autoTagState.value = AutoTagState.Idle
     }
 
     fun clearError() {

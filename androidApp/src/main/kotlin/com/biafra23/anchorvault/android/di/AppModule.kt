@@ -5,6 +5,8 @@ import com.biafra23.anchorvault.android.database.AppDatabase
 import com.biafra23.anchorvault.android.database.DatabaseKeyManager
 import com.biafra23.anchorvault.android.database.RoomBookmarkRepository
 import com.biafra23.anchorvault.android.sync.AndroidBitwardenPreferences
+import com.biafra23.anchorvault.autotag.AutoTagService
+import com.biafra23.anchorvault.autotag.createAutoTagService
 import com.biafra23.anchorvault.repository.BookmarkRepository
 import com.biafra23.anchorvault.sync.BitwardenSyncService
 import com.biafra23.anchorvault.sync.createBitwardenSyncService
@@ -52,8 +54,11 @@ val appModule = module {
         service
     }
 
+    // Auto-tag service
+    single<AutoTagService> { createAutoTagService() }
+
     // ViewModel
     viewModel {
-        BookmarkViewModel(get(), get())
+        BookmarkViewModel(get(), get(), get())
     }
 }

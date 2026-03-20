@@ -39,6 +39,8 @@ import com.biafra23.anchorvault.sync.BitwardenCredentials
 @Composable
 fun SettingsScreen(
     currentCredentials: BitwardenCredentials? = null,
+    autoTagEnabled: Boolean = false,
+    onAutoTagEnabledChanged: (Boolean) -> Unit = {},
     onSaveCredentials: (BitwardenCredentials) -> Unit,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -181,6 +183,36 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider()
 
+            // --- Features Section ---
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Features",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Auto-tag bookmarks", style = MaterialTheme.typography.bodyLarge)
+                Switch(
+                    checked = autoTagEnabled,
+                    onCheckedChange = onAutoTagEnabledChanged
+                )
+            }
+            Text(
+                text = "When enabled, an \"Auto-tag\" button appears on the bookmark editor. "
+                    + "It fetches the page content and suggests relevant tags automatically.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider()
+
             // --- About Section ---
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -195,10 +227,17 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = "Data is stored locally in an encrypted Room database (SQLCipher) and "
+                text = "Data is stored locally in an encrypted database (SQLCipher on Android) and "
                     + "optionally synced to your Bitwarden vault as Secure Notes.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "Important: The database encryption key is tied to this device's hardware keystore "
+                    + "and cannot be exported or backed up. If you uninstall the app or factory-reset your "
+                    + "device, local bookmarks will be lost unless synced to Bitwarden.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
             )
         }
     }
