@@ -2,10 +2,14 @@
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 
-# Keep Room database classes
--keep class com.biafra23.anchorvault.android.database.** { *; }
--keep class com.biafra23.anchorvault.model.** { *; }
--keep class com.biafra23.anchorvault.sync.** { *; }
+# Room entities and DAOs (Room's annotation processor handles most, but SQLCipher needs the entity classes)
+-keep class com.biafra23.anchorvault.android.database.BookmarkEntity { *; }
+-keep class com.biafra23.anchorvault.android.database.BookmarkDao { *; }
+-keep class com.biafra23.anchorvault.android.database.AppDatabase { *; }
+
+# Serializable model and sync classes (needed by kotlinx.serialization reflection)
+-keepclassmembers class com.biafra23.anchorvault.model.Bookmark { *; }
+-keepclassmembers class com.biafra23.anchorvault.sync.BitwardenCredentials { *; }
 
 # SQLCipher
 -keep class net.sqlcipher.** { *; }
@@ -28,11 +32,11 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# Ktor
--keep class io.ktor.** { *; }
--keep class kotlinx.coroutines.** { *; }
+# Ktor — keep engine + SPI classes only (not entire package)
+-keep class io.ktor.client.engine.** { *; }
+-keep class io.ktor.utils.io.** { *; }
 -dontwarn java.lang.management.ManagementFactory
 -dontwarn java.lang.management.RuntimeMXBean
 
-# Koin
--keep class org.koin.** { *; }
+# Koin — keep core reflection needs only
+-keep class org.koin.core.** { *; }

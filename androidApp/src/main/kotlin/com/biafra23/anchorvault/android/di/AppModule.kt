@@ -21,6 +21,9 @@ val appModule = module {
     // Application-level coroutine scope
     single { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
+    // Bitwarden credential storage
+    single { AndroidBitwardenPreferences(androidContext()) }
+
     // Database
     single<AppDatabase> {
         val context: Context = androidContext()
@@ -39,7 +42,7 @@ val appModule = module {
     single<BitwardenSyncService> {
         val service = createBitwardenSyncService()
         // Restore previously saved credentials on app start
-        val prefs = AndroidBitwardenPreferences(androidContext())
+        val prefs = get<AndroidBitwardenPreferences>()
         val savedCredentials = prefs.loadCredentials()
         if (savedCredentials != null) {
             get<CoroutineScope>().launch {

@@ -10,11 +10,9 @@ import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.Parameters
 import io.ktor.http.contentType
-import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -50,6 +48,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         return try {
             val token = getAccessToken(creds) ?: return SyncResult.Error("Authentication failed")
             val folderId = getOrCreateFolder(creds, token, creds.folderName)
+                ?: return SyncResult.Error("Failed to resolve vault folder '${creds.folderName}'")
 
             // Fetch all ciphers once to avoid N+1 API calls
             val allCiphers = fetchAllCiphers(creds, token)
@@ -74,7 +73,9 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         return try {
             val token = getAccessToken(creds)
                 ?: return Result.failure(IllegalStateException("Authentication failed"))
-            val items = fetchVaultItems(creds, token, creds.folderName)
+            val folderId = getOrCreateFolder(creds, token, creds.folderName)
+                ?: return Result.failure(IllegalStateException("Failed to resolve vault folder '${creds.folderName}'"))
+            val items = fetchVaultItems(creds, token, folderId)
             val bookmarks = items.mapNotNull { item ->
                 item.notes?.let { notes ->
                     runCatching { json.decodeFromString(Bookmark.serializer(), notes) }.getOrNull()
@@ -167,7 +168,8 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                 tokenExpiresAtMillis = now + (response.expires_in - 60) * 1000
                 accessToken
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            println("AnchorVault: authentication failed: ${e.message}")
             null
         }
     }
@@ -195,7 +197,8 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                 }.body()
                 created.id
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            println("AnchorVault: folder lookup/creation failed: ${e.message}")
             null
         }
     }
@@ -209,7 +212,8 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                 bearerAuth(token)
             }.body()
             items.data
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            println("AnchorVault: failed to fetch ciphers: ${e.message}")
             emptyList()
         }
     }
@@ -217,13 +221,13 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
     private suspend fun fetchVaultItems(
         creds: BitwardenCredentials,
         token: String,
-        folderName: String
+        folderId: String
     ): List<VaultItemResponse> {
         return try {
-            val folderId = getOrCreateFolder(creds, token, folderName)
             val items = fetchAllCiphers(creds, token)
             items.filter { it.folderId == folderId && it.type == 2 }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            println("AnchorVault: failed to fetch vault items: ${e.message}")
             emptyList()
         }
     }
@@ -283,8 +287,10 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                     setBody(body)
                 }
             }
-        } catch (_: Exception) {
-            // Best-effort sync; individual item failures do not abort the full sync
+        } catch (e: Exception) {
+            // Best-effort sync; individual item failures do not abort the full sync.
+            // Log for debugging — callers handle overall sync success/failure.
+            println("AnchorVault: failed to upsert vault item '${item.name}': ${e.message}")
         }
     }
 

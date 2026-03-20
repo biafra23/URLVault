@@ -13,8 +13,9 @@ import org.koin.core.logger.Level
 class AnchorVaultApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        val isDebug = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
         startKoin {
-            androidLogger(Level.INFO)
+            androidLogger(if (isDebug) Level.INFO else Level.ERROR)
             androidContext(this@AnchorVaultApp)
             modules(appModule)
         }

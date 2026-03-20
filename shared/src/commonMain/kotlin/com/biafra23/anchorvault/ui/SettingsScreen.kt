@@ -48,7 +48,9 @@ fun SettingsScreen(
     var clientId by remember { mutableStateOf(currentCredentials?.clientId ?: "") }
     var clientSecret by remember { mutableStateOf(currentCredentials?.clientSecret ?: "") }
     var folderName by remember { mutableStateOf(currentCredentials?.folderName ?: "AnchorVault") }
-    var useSelfHosted by remember { mutableStateOf(currentCredentials?.apiBaseUrl != "https://api.bitwarden.com") }
+    var useSelfHosted by remember {
+        mutableStateOf(currentCredentials != null && currentCredentials.apiBaseUrl != "https://api.bitwarden.com")
+    }
 
     Scaffold(
         modifier = modifier,

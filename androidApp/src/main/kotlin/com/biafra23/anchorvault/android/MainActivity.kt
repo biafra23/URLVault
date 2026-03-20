@@ -17,6 +17,7 @@ import com.biafra23.anchorvault.ui.BookmarkListScreen
 import com.biafra23.anchorvault.ui.SettingsScreen
 import com.biafra23.anchorvault.ui.theme.AnchorVaultTheme
 import com.biafra23.anchorvault.viewmodel.BookmarkViewModel
+import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
 /**
@@ -26,6 +27,7 @@ import org.koin.androidx.viewmodel.ext.android.viewModel
 class MainActivity : ComponentActivity() {
 
     private val bookmarkViewModel: BookmarkViewModel by viewModel()
+    private val bitwardenPrefs: AndroidBitwardenPreferences by inject()
 
     /** Hoisted so onNewIntent can update navigation state. */
     private var currentScreen by mutableStateOf<Screen>(Screen.List)
@@ -67,11 +69,10 @@ class MainActivity : ComponentActivity() {
                     }
 
                     is Screen.Settings -> {
-                        val prefs = remember { AndroidBitwardenPreferences(this) }
                         SettingsScreen(
-                            currentCredentials = prefs.loadCredentials(),
+                            currentCredentials = bitwardenPrefs.loadCredentials(),
                             onSaveCredentials = { credentials: BitwardenCredentials ->
-                                prefs.saveCredentials(credentials)
+                                bitwardenPrefs.saveCredentials(credentials)
                                 bookmarkViewModel.configureBitwarden(credentials)
                                 currentScreen = Screen.List
                             },
