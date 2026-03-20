@@ -7,7 +7,7 @@
 -keep class com.biafra23.anchorvault.android.database.BookmarkDao { *; }
 -keep class com.biafra23.anchorvault.android.database.AppDatabase { *; }
 
-# Serializable model and sync classes (needed by kotlinx.serialization reflection)
+# Serializable model and sync classes (needed by kotlinx.serialization generated serializers)
 -keepclassmembers class com.biafra23.anchorvault.model.Bookmark { *; }
 -keepclassmembers class com.biafra23.anchorvault.sync.BitwardenCredentials { *; }
 

@@ -82,11 +82,6 @@ android {
 
     lint {
         disable += "NullSafeMutableLiveData"
-        // Workaround: Compose lint detectors crash with IncompatibleClassChangeError
-        // on this Kotlin 2.1.0 / AGP 8.7.3 combination (known upstream issue).
-        // The JVM-level crash bypasses abortOnError, so we disable the checks entirely.
-        disable += "RememberInComposition"
-        disable += "FrequentlyChangingValue"
         abortOnError = false
         checkDependencies = false
     }

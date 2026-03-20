@@ -33,13 +33,10 @@ class AutoTagService(private val httpClient: HttpClient) {
                 textParts.add(cleaned)
             }
 
-            // Extract <meta name="description" content="...">
-            META_DESC_REGEX.find(trimmedHtml)?.groupValues?.getOrNull(1)?.let {
-                textParts.add(stripHtmlTags(it))
-            }
-            // Also try reversed attribute order
-            META_DESC_REVERSED_REGEX.find(trimmedHtml)?.groupValues?.getOrNull(1)?.let {
-                textParts.add(stripHtmlTags(it))
+            // Extract <meta name="description" content="..."> (handles both attribute orders)
+            META_DESC_REGEX.find(trimmedHtml)?.let { match ->
+                val content = match.groupValues[1].ifEmpty { match.groupValues[2] }
+                if (content.isNotEmpty()) textParts.add(stripHtmlTags(content))
             }
 
             // Extract <meta name="keywords" content="...">
@@ -85,20 +82,21 @@ class AutoTagService(private val httpClient: HttpClient) {
 
     companion object {
         private val TITLE_REGEX =
-            Regex("<title[^>]*>(.*?)</title>", RegexOption.IGNORE_CASE)
+            Regex("<title[^>]*>([\\s\\S]*?)</title>", RegexOption.IGNORE_CASE)
         private val META_DESC_REGEX =
-            Regex("""<meta\s+name=["']description["']\s+content=["'](.*?)["']""", RegexOption.IGNORE_CASE)
-        private val META_DESC_REVERSED_REGEX =
-            Regex("""<meta\s+content=["'](.*?)["']\s+name=["']description["']""", RegexOption.IGNORE_CASE)
+            Regex("""<meta\s+(?:name=["']description["']\s+content=["']([^"']*)["']|content=["']([^"']*)["']\s+name=["']description["'])""",
+                RegexOption.IGNORE_CASE)
         private val META_KEYWORDS_REGEX =
-            Regex("""<meta\s+name=["']keywords["']\s+content=["'](.*?)["']""", RegexOption.IGNORE_CASE)
+            Regex("""<meta\s+name=["']keywords["']\s+content=["']([^"']*)["']""",
+                RegexOption.IGNORE_CASE)
         private val HEADING_REGEX =
             Regex("<h([1-3])[^>]*>([\\s\\S]*?)</h\\1>", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("<[^>]+>")
+        private val HTML_ENTITY_REGEX = Regex("&[a-z]+;")
         private val WORD_SPLIT_REGEX = Regex("[^a-z0-9]+")
 
         private fun stripHtmlTags(text: String): String =
-            text.replace(HTML_TAG_REGEX, " ").replace("&[a-z]+;".toRegex(), " ")
+            text.replace(HTML_TAG_REGEX, " ").replace(HTML_ENTITY_REGEX, " ")
     }
 }
 

@@ -204,9 +204,9 @@ fun AddEditBookmarkScreen(
                     }
                 }
 
-                if (autoTagError != null) {
+                autoTagError?.let { errorMessage ->
                     Text(
-                        text = autoTagError!!,
+                        text = errorMessage,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )
