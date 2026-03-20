@@ -9,7 +9,6 @@ import androidx.compose.ui.window.ComposeUIViewController
 import com.biafra23.anchorvault.autotag.createAutoTagService
 import com.biafra23.anchorvault.database.IosBookmarkRepository
 import com.biafra23.anchorvault.model.Bookmark
-import com.biafra23.anchorvault.sync.BitwardenCredentials
 import com.biafra23.anchorvault.sync.createBitwardenSyncService
 import com.biafra23.anchorvault.ui.AddEditBookmarkScreen
 import com.biafra23.anchorvault.ui.BookmarkListScreen
@@ -62,11 +61,11 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
             is IosScreen.Settings -> {
                 SettingsScreen(
                     currentCredentials = null,
+                    syncService = syncService,
                     autoTagEnabled = autoTagEnabled,
                     onAutoTagEnabledChanged = { autoTagEnabled = it },
-                    onSaveCredentials = { credentials: BitwardenCredentials ->
+                    onSaveCredentials = { credentials ->
                         viewModel.configureBitwarden(credentials)
-                        currentScreen = IosScreen.List
                     },
                     onNavigateBack = { currentScreen = IosScreen.List }
                 )

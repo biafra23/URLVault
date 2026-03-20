@@ -21,10 +21,12 @@ kotlin {
             implementation(project(":shared"))
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutines.swing)
+            implementation(libs.kotlinx.serialization.json)
             implementation(libs.sqlite.jdbc)
             implementation(libs.slf4j.simple)
             implementation(libs.koin.core)
             implementation(libs.ktor.client.java)
+            implementation(libs.jetbrains.lifecycle.viewmodel)
         }
     }
 }
@@ -32,25 +34,27 @@ kotlin {
 compose.desktop {
     application {
         mainClass = "com.biafra23.anchorvault.desktop.MainKt"
+        from(kotlin.targets["desktop"])
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            modules("java.sql", "java.net.http", "java.logging", "java.naming", "jdk.crypto.ec", "jdk.unsupported")
             packageName = "AnchorVault"
             packageVersion = appVersion
             description = "Secure bookmark storage with Bitwarden sync"
             copyright = "© 2024 AnchorVault"
 
             macOS {
-                iconFile.set(project.file("src/main/resources/icon.icns"))
+                iconFile.set(project.file("src/desktopMain/resources/icon.icns"))
                 bundleID = "com.biafra23.anchorvault"
             }
             windows {
-                iconFile.set(project.file("src/main/resources/icon.ico"))
+                iconFile.set(project.file("src/desktopMain/resources/icon.ico"))
                 menuGroup = "AnchorVault"
                 upgradeUuid = "e0f7a5e3-4d2b-4b8e-9c1a-5f6d7e8a9b0c"
             }
             linux {
-                iconFile.set(project.file("src/main/resources/icon.png"))
+                iconFile.set(project.file("src/desktopMain/resources/icon.png"))
             }
         }
     }

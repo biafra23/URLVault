@@ -12,7 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.biafra23.anchorvault.android.sync.AndroidBitwardenPreferences
 import com.biafra23.anchorvault.model.Bookmark
-import com.biafra23.anchorvault.sync.BitwardenCredentials
+import com.biafra23.anchorvault.sync.BitwardenSyncService
 import com.biafra23.anchorvault.ui.AddEditBookmarkScreen
 import com.biafra23.anchorvault.ui.BookmarkListScreen
 import com.biafra23.anchorvault.ui.SettingsScreen
@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
 
     private val bookmarkViewModel: BookmarkViewModel by viewModel()
     private val bitwardenPrefs: AndroidBitwardenPreferences by inject()
+    private val syncService: BitwardenSyncService by inject()
 
     /** Hoisted so onNewIntent can update navigation state. */
     private var currentScreen by mutableStateOf<Screen>(Screen.List)
@@ -78,15 +79,15 @@ class MainActivity : ComponentActivity() {
                     is Screen.Settings -> {
                         SettingsScreen(
                             currentCredentials = bitwardenPrefs.loadCredentials(),
+                            syncService = syncService,
                             autoTagEnabled = autoTagEnabled,
                             onAutoTagEnabledChanged = { enabled ->
                                 autoTagEnabled = enabled
                                 bitwardenPrefs.saveAutoTagEnabled(enabled)
                             },
-                            onSaveCredentials = { credentials: BitwardenCredentials ->
+                            onSaveCredentials = { credentials ->
                                 bitwardenPrefs.saveCredentials(credentials)
                                 bookmarkViewModel.configureBitwarden(credentials)
-                                currentScreen = Screen.List
                             },
                             onNavigateBack = { currentScreen = Screen.List }
                         )

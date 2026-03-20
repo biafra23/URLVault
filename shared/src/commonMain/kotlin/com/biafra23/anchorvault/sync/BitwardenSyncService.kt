@@ -20,7 +20,9 @@ data class BitwardenItem(
     val id: String,
     val name: String,
     val notes: String?,
-    val type: Int = 2 // 2 = Secure Note
+    val url: String? = null,
+    val isFavorite: Boolean = false,
+    val type: Int = 1 // 1 = Login (with clickable URIs)
 )
 
 /**
@@ -57,15 +59,25 @@ interface BitwardenSyncService {
      * Returns true if Bitwarden sync has been configured with valid credentials.
      */
     fun isConfigured(): Boolean
+
+    /**
+     * Validates credentials by authenticating and ensuring the sync folder exists
+     * (creating it if necessary). Returns a descriptive error message on failure,
+     * or null on success.
+     */
+    suspend fun validateCredentials(credentials: BitwardenCredentials): String?
 }
 
 /**
  * Credentials required to authenticate with the Bitwarden REST API.
  *
- * @param apiBaseUrl  The base URL of the Bitwarden API (defaults to official cloud).
- * @param clientId    The OAuth 2.0 client ID obtained from Bitwarden settings.
- * @param clientSecret The OAuth 2.0 client secret obtained from Bitwarden settings.
- * @param folderName  Name of the Bitwarden folder used to store AnchorVault bookmarks.
+ * @param apiBaseUrl     The base URL of the Bitwarden API (defaults to official cloud).
+ * @param clientId       The OAuth 2.0 client ID obtained from Bitwarden settings.
+ * @param clientSecret   The OAuth 2.0 client secret obtained from Bitwarden settings.
+ * @param folderName     Name of the Bitwarden folder used to store AnchorVault bookmarks.
+ * @param masterPassword Optional. When provided, vault data is encrypted client-side
+ *                       using the Bitwarden protocol, making it visible in the web UI.
+ * @param email          Required when [masterPassword] is set. Used as the PBKDF2 salt.
  */
 @Serializable
 data class BitwardenCredentials(
@@ -73,5 +85,7 @@ data class BitwardenCredentials(
     val identityUrl: String = "https://identity.bitwarden.com",
     val clientId: String,
     val clientSecret: String,
-    val folderName: String = "AnchorVault"
+    val folderName: String = "AnchorVault",
+    val masterPassword: String? = null,
+    val email: String? = null
 )

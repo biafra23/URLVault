@@ -11,7 +11,6 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.biafra23.anchorvault.autotag.createAutoTagService
 import com.biafra23.anchorvault.model.Bookmark
-import com.biafra23.anchorvault.sync.BitwardenCredentials
 import com.biafra23.anchorvault.sync.createBitwardenSyncService
 import com.biafra23.anchorvault.ui.AddEditBookmarkScreen
 import com.biafra23.anchorvault.ui.BookmarkListScreen
@@ -84,15 +83,15 @@ fun main() = application {
                 is DesktopScreen.Settings -> {
                     SettingsScreen(
                         currentCredentials = prefs.loadCredentials(),
+                        syncService = syncService,
                         autoTagEnabled = autoTagEnabled,
                         onAutoTagEnabledChanged = { enabled ->
                             autoTagEnabled = enabled
                             prefs.saveAutoTagEnabled(enabled)
                         },
-                        onSaveCredentials = { credentials: BitwardenCredentials ->
+                        onSaveCredentials = { credentials ->
                             prefs.saveCredentials(credentials)
                             viewModel.configureBitwarden(credentials)
-                            currentScreen = DesktopScreen.List
                         },
                         onNavigateBack = { currentScreen = DesktopScreen.List }
                     )

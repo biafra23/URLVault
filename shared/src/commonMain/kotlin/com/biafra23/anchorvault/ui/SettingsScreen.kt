@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
@@ -24,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +34,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.biafra23.anchorvault.sync.BitwardenCredentials
+import com.biafra23.anchorvault.sync.BitwardenSyncService
+import kotlinx.coroutines.launch
 
 /**
  * Settings screen for configuring Bitwarden sync credentials and app preferences.
@@ -39,6 +44,7 @@ import com.biafra23.anchorvault.sync.BitwardenCredentials
 @Composable
 fun SettingsScreen(
     currentCredentials: BitwardenCredentials? = null,
+    syncService: BitwardenSyncService,
     autoTagEnabled: Boolean = false,
     onAutoTagEnabledChanged: (Boolean) -> Unit = {},
     onSaveCredentials: (BitwardenCredentials) -> Unit,
@@ -50,9 +56,16 @@ fun SettingsScreen(
     var clientId by remember { mutableStateOf(currentCredentials?.clientId ?: "") }
     var clientSecret by remember { mutableStateOf(currentCredentials?.clientSecret ?: "") }
     var folderName by remember { mutableStateOf(currentCredentials?.folderName ?: "AnchorVault") }
-    var useSelfHosted by remember {
-        mutableStateOf(currentCredentials != null && currentCredentials.apiBaseUrl != "https://api.bitwarden.com")
-    }
+    var useSelfHosted by remember { mutableStateOf(currentCredentials?.apiBaseUrl != "https://api.bitwarden.com") }
+    var email by remember { mutableStateOf(currentCredentials?.email ?: "") }
+    var masterPassword by remember { mutableStateOf(currentCredentials?.masterPassword ?: "") }
+    var enableEncryption by remember { mutableStateOf(currentCredentials?.masterPassword != null) }
+
+    var isValidating by remember { mutableStateOf(false) }
+    var validationResult by remember { mutableStateOf<String?>(null) }
+    var validationSuccess by remember { mutableStateOf(false) }
+
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         modifier = modifier,
@@ -160,24 +173,114 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            Spacer(modifier = Modifier.height(4.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // --- Vault Encryption Section ---
+            Text(
+                text = "Vault Encryption (Optional)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "Without your master password, synced data is stored unencrypted on the server "
+                    + "and will not be visible in the Bitwarden/Vaultwarden web UI. "
+                    + "Provide your master password to enable end-to-end encryption — "
+                    + "your bookmarks will then appear in the web vault like any other item.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Enable vault encryption", style = MaterialTheme.typography.bodyLarge)
+                Switch(
+                    checked = enableEncryption,
+                    onCheckedChange = { enableEncryption = it }
+                )
+            }
+
+            if (enableEncryption) {
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Bitwarden Account Email") },
+                    placeholder = { Text("you@example.com") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = masterPassword,
+                    onValueChange = { masterPassword = it },
+                    label = { Text("Master Password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = "Your master password is stored encrypted on this device and is never sent to any server. "
+                        + "It is only used locally to derive encryption keys.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             Button(
                 onClick = {
-                    if (clientId.isNotBlank() && clientSecret.isNotBlank()) {
-                        onSaveCredentials(
-                            BitwardenCredentials(
-                                apiBaseUrl = apiBaseUrl.trim(),
-                                identityUrl = identityUrl.trim(),
-                                clientId = clientId.trim(),
-                                clientSecret = clientSecret.trim(),
-                                folderName = folderName.trim().ifBlank { "AnchorVault" }
-                            )
-                        )
+                    val credentials = BitwardenCredentials(
+                        apiBaseUrl = apiBaseUrl.trim(),
+                        identityUrl = identityUrl.trim(),
+                        clientId = clientId.trim(),
+                        clientSecret = clientSecret.trim(),
+                        folderName = folderName.trim().ifBlank { "AnchorVault" },
+                        masterPassword = if (enableEncryption) masterPassword else null,
+                        email = if (enableEncryption) email.trim().lowercase() else null
+                    )
+                    isValidating = true
+                    validationResult = null
+                    validationSuccess = false
+                    scope.launch {
+                        val error = syncService.validateCredentials(credentials)
+                        isValidating = false
+                        if (error == null) {
+                            validationSuccess = true
+                            validationResult = "Connection successful — folder '${credentials.folderName}' is ready."
+                            onSaveCredentials(credentials)
+                        } else {
+                            validationSuccess = false
+                            validationResult = error
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = clientId.isNotBlank() && clientSecret.isNotBlank()
+                enabled = clientId.isNotBlank() && clientSecret.isNotBlank() && !isValidating
+                    && (!enableEncryption || (email.isNotBlank() && masterPassword.isNotBlank()))
             ) {
-                Text("Save Bitwarden Credentials")
+                if (isValidating) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                    Text("  Validating...", style = MaterialTheme.typography.labelLarge)
+                } else {
+                    Text("Save Bitwarden Credentials")
+                }
+            }
+
+            // Validation result message
+            if (validationResult != null) {
+                Text(
+                    text = validationResult!!,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (validationSuccess) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.error
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))

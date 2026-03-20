@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -44,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,11 +79,18 @@ fun BookmarkListScreen(
         }
     }
 
-    // Show sync success
+    // Show sync success or error
     LaunchedEffect(uiState.syncStatus) {
-        if (uiState.syncStatus == SyncStatus.Success) {
-            snackbarHostState.showSnackbar("Sync completed successfully")
-            viewModel.clearError()
+        when (val status = uiState.syncStatus) {
+            is SyncStatus.Success -> {
+                snackbarHostState.showSnackbar("Sync completed successfully")
+                viewModel.clearError()
+            }
+            is SyncStatus.Error -> {
+                snackbarHostState.showSnackbar("Sync failed: ${status.message}")
+                viewModel.clearError()
+            }
+            else -> {}
         }
     }
 
@@ -134,10 +144,12 @@ fun BookmarkListScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
+        val uriHandler = LocalUriHandler.current
         BookmarkListContent(
             uiState = uiState,
             onTagSelected = viewModel::selectTag,
             onSearchQueryChanged = viewModel::updateSearchQuery,
+            onOpenUrl = { url -> uriHandler.openUri(url) },
             onEditBookmark = onEditBookmark,
             onDeleteBookmark = viewModel::deleteBookmark,
             onToggleFavorite = viewModel::toggleFavorite,
@@ -151,6 +163,7 @@ private fun BookmarkListContent(
     uiState: BookmarkListUiState,
     onTagSelected: (String?) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
+    onOpenUrl: (String) -> Unit,
     onEditBookmark: (Bookmark) -> Unit,
     onDeleteBookmark: (String) -> Unit,
     onToggleFavorite: (Bookmark) -> Unit,
@@ -195,6 +208,7 @@ private fun BookmarkListContent(
                 ) { bookmark ->
                     BookmarkCard(
                         bookmark = bookmark,
+                        onOpen = { onOpenUrl(bookmark.url) },
                         onEdit = { onEditBookmark(bookmark) },
                         onDelete = { onDeleteBookmark(bookmark.id) },
                         onToggleFavorite = { onToggleFavorite(bookmark) }
@@ -260,20 +274,21 @@ private fun TagFilterRow(
 @Composable
 private fun BookmarkCard(
     bookmark: Bookmark,
+    onOpen: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onToggleFavorite: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showActions by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { showActions = !showActions },
+            .clickable { onOpen() },
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -296,13 +311,37 @@ private fun BookmarkCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Spacer(modifier = Modifier.width(8.dp))
                 // Favorite star
                 Text(
                     text = if (bookmark.isFavorite) "\u2B50" else "\u2606",
-                    modifier = Modifier.clickable { onToggleFavorite() },
+                    modifier = Modifier
+                        .clickable { onToggleFavorite() }
+                        .padding(horizontal = 4.dp),
                     style = MaterialTheme.typography.titleMedium
                 )
+                // Overflow menu
+                Box {
+                    Text(
+                        text = "\u22EE",
+                        modifier = Modifier
+                            .clickable { showMenu = true }
+                            .padding(horizontal = 4.dp),
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Edit") },
+                            onClick = { onEdit(); showMenu = false }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                            onClick = { onDelete(); showMenu = false }
+                        )
+                    }
+                }
             }
 
             if (bookmark.description.isNotBlank()) {
@@ -334,34 +373,6 @@ private fun BookmarkCard(
                             )
                         }
                     }
-                }
-            }
-
-            // Actions row (expanded on tap)
-            AnimatedVisibility(visible = showActions) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Text(
-                        text = "Edit",
-                        modifier = Modifier
-                            .clickable { onEdit(); showActions = false }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Delete",
-                        modifier = Modifier
-                            .clickable { onDelete(); showActions = false }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.error
-                    )
                 }
             }
         }
