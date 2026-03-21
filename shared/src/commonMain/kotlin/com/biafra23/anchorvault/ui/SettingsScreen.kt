@@ -47,6 +47,10 @@ fun SettingsScreen(
     syncService: BitwardenSyncService,
     autoTagEnabled: Boolean = false,
     onAutoTagEnabledChanged: (Boolean) -> Unit = {},
+    aiCoreAvailable: Boolean = false,
+    aiCoreEnabled: Boolean = false,
+    aiCoreStatusText: String? = null,
+    onAiCoreEnabledChanged: (Boolean) -> Unit = {},
     onSaveCredentials: (BitwardenCredentials) -> Unit,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -312,6 +316,33 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            if (aiCoreAvailable) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("AI-powered suggestions (on-device)", style = MaterialTheme.typography.bodyLarge)
+                    Switch(
+                        checked = aiCoreEnabled,
+                        onCheckedChange = onAiCoreEnabledChanged
+                    )
+                }
+                Text(
+                    text = "Uses on-device AI to generate tags and descriptions. No data leaves your device.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (aiCoreStatusText != null) {
+                    Text(
+                        text = aiCoreStatusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider()

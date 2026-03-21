@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.biafra23.anchorvault"
-        minSdk = 29
+        minSdk = 31
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersion
@@ -142,4 +142,11 @@ dependencies {
 
     // Serialization
     implementation(libs.kotlinx.serialization.json)
+
+    // Ktor (HTTP client for web page content fetching)
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.android)
+
+    // AICore (Gemini Nano on-device AI)
+    implementation(libs.google.aicore)
 }

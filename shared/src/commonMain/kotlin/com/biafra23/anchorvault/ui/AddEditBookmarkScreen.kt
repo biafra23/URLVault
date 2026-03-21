@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.biafra23.anchorvault.model.Bookmark
+import com.biafra23.anchorvault.viewmodel.AIGenerationState
 import com.biafra23.anchorvault.viewmodel.AutoTagState
 
 /**
@@ -64,6 +65,13 @@ fun AddEditBookmarkScreen(
     autoTagState: AutoTagState = AutoTagState.Idle,
     onAutoTag: ((String) -> Unit)? = null,
     onAutoTagConsumed: () -> Unit = {},
+    aiCoreEnabled: Boolean = false,
+    aiTagState: AIGenerationState = AIGenerationState.Idle,
+    aiDescriptionState: AIGenerationState = AIGenerationState.Idle,
+    onAiGenerateTags: ((String, String, String) -> Unit)? = null,
+    onAiGenerateDescription: ((String, String) -> Unit)? = null,
+    onAiTagConsumed: () -> Unit = {},
+    onAiDescriptionConsumed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isEditMode = existingBookmark != null
@@ -78,6 +86,8 @@ fun AddEditBookmarkScreen(
     var newTagInput by remember { mutableStateOf("") }
     var urlError by remember { mutableStateOf<String?>(null) }
     var autoTagError by remember { mutableStateOf<String?>(null) }
+    var aiTagError by remember { mutableStateOf<String?>(null) }
+    var aiDescriptionError by remember { mutableStateOf<String?>(null) }
 
     // Apply auto-tag results when they arrive
     LaunchedEffect(autoTagState) {
@@ -92,6 +102,40 @@ fun AddEditBookmarkScreen(
             is AutoTagState.Error -> {
                 autoTagError = autoTagState.message
                 onAutoTagConsumed()
+            }
+            else -> {}
+        }
+    }
+
+    // Apply AI tag results when they arrive
+    LaunchedEffect(aiTagState) {
+        when (aiTagState) {
+            is AIGenerationState.TagsSuccess -> {
+                aiTagError = null
+                aiTagState.tags.forEach { tag ->
+                    if (!selectedTags.contains(tag)) selectedTags.add(tag)
+                }
+                onAiTagConsumed()
+            }
+            is AIGenerationState.Error -> {
+                aiTagError = aiTagState.message
+                onAiTagConsumed()
+            }
+            else -> {}
+        }
+    }
+
+    // Apply AI description results when they arrive
+    LaunchedEffect(aiDescriptionState) {
+        when (aiDescriptionState) {
+            is AIGenerationState.DescriptionSuccess -> {
+                aiDescriptionError = null
+                description = aiDescriptionState.description
+                onAiDescriptionConsumed()
+            }
+            is AIGenerationState.Error -> {
+                aiDescriptionError = aiDescriptionState.message
+                onAiDescriptionConsumed()
             }
             else -> {}
         }
@@ -157,6 +201,40 @@ fun AddEditBookmarkScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            // AI Description button (only visible when AI is enabled)
+            if (aiCoreEnabled && onAiGenerateDescription != null) {
+                OutlinedButton(
+                    onClick = {
+                        val targetUrl = if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                            "https://$url"
+                        } else url
+                        aiDescriptionError = null
+                        onAiGenerateDescription(targetUrl, title)
+                    },
+                    enabled = url.isNotBlank() && aiDescriptionState !is AIGenerationState.Loading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (aiDescriptionState is AIGenerationState.Loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Generating description...")
+                    } else {
+                        Text("AI Description")
+                    }
+                }
+
+                aiDescriptionError?.let { errorMessage ->
+                    Text(
+                        text = errorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
             // Favorite toggle
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -205,6 +283,40 @@ fun AddEditBookmarkScreen(
                 }
 
                 autoTagError?.let { errorMessage ->
+                    Text(
+                        text = errorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
+            // AI Tags button (only visible when AI is enabled)
+            if (aiCoreEnabled && onAiGenerateTags != null) {
+                OutlinedButton(
+                    onClick = {
+                        val targetUrl = if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                            "https://$url"
+                        } else url
+                        aiTagError = null
+                        onAiGenerateTags(targetUrl, title, description)
+                    },
+                    enabled = url.isNotBlank() && aiTagState !is AIGenerationState.Loading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (aiTagState is AIGenerationState.Loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Generating AI tags...")
+                    } else {
+                        Text("AI Tags")
+                    }
+                }
+
+                aiTagError?.let { errorMessage ->
                     Text(
                         text = errorMessage,
                         style = MaterialTheme.typography.bodySmall,

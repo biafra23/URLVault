@@ -1,6 +1,7 @@
 package com.biafra23.anchorvault.android.di
 
 import android.content.Context
+import com.biafra23.anchorvault.android.ai.AICoreService
 import com.biafra23.anchorvault.android.database.AppDatabase
 import com.biafra23.anchorvault.android.database.DatabaseKeyManager
 import com.biafra23.anchorvault.android.database.RoomBookmarkRepository
@@ -57,8 +58,18 @@ val appModule = module {
     // Auto-tag service
     single<AutoTagService> { createAutoTagService() }
 
+    // AICore (Gemini Nano on-device AI)
+    single { AICoreService(androidContext()) }
+
     // ViewModel
     viewModel {
-        BookmarkViewModel(get(), get(), get())
+        val aiCoreService = get<AICoreService>()
+        BookmarkViewModel(
+            repository = get(),
+            syncService = get(),
+            autoTagService = get(),
+            aiTagGenerator = { url, title, desc -> aiCoreService.generateTags(url, title, desc) },
+            aiDescriptionGenerator = { url, title -> aiCoreService.generateDescription(url, title) }
+        )
     }
 }

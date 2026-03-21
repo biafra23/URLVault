@@ -50,9 +50,18 @@ class AndroidBitwardenPreferences(context: Context) {
         return prefs.getBoolean(KEY_AUTO_TAG_ENABLED, false)
     }
 
+    fun saveAiCoreEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AI_CORE_ENABLED, enabled).apply()
+    }
+
+    fun loadAiCoreEnabled(): Boolean {
+        return prefs.getBoolean(KEY_AI_CORE_ENABLED, false)
+    }
+
     companion object {
         private const val PREFS_NAME = "anchorvault_bitwarden_encrypted"
         private const val KEY_CREDENTIALS = "credentials"
         private const val KEY_AUTO_TAG_ENABLED = "auto_tag_enabled"
+        private const val KEY_AI_CORE_ENABLED = "ai_core_enabled"
     }
 }

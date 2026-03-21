@@ -53,6 +53,17 @@ sealed class AutoTagState {
     data class Error(val message: String) : AutoTagState()
 }
 
+/**
+ * Represents the current state of an AI generation operation (tags or description).
+ */
+sealed class AIGenerationState {
+    data object Idle : AIGenerationState()
+    data object Loading : AIGenerationState()
+    data class TagsSuccess(val tags: List<String>) : AIGenerationState()
+    data class DescriptionSuccess(val description: String) : AIGenerationState()
+    data class Error(val message: String) : AIGenerationState()
+}
+
 /** Internal holder for tag/search filter parameters. */
 private data class FilterState(val selectedTag: String?, val searchQuery: String)
 
@@ -63,7 +74,9 @@ private data class FilterState(val selectedTag: String?, val searchQuery: String
 class BookmarkViewModel(
     private val repository: BookmarkRepository,
     private val syncService: BitwardenSyncService,
-    private val autoTagService: AutoTagService? = null
+    private val autoTagService: AutoTagService? = null,
+    private val aiTagGenerator: (suspend (String, String, String) -> Result<List<String>>)? = null,
+    private val aiDescriptionGenerator: (suspend (String, String) -> Result<String>)? = null
 ) : ViewModel() {
 
     private val _selectedTag = MutableStateFlow<String?>(null)
@@ -71,8 +84,12 @@ class BookmarkViewModel(
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     private val _errorMessage = MutableStateFlow<String?>(null)
     private val _autoTagState = MutableStateFlow<AutoTagState>(AutoTagState.Idle)
+    private val _aiTagState = MutableStateFlow<AIGenerationState>(AIGenerationState.Idle)
+    private val _aiDescriptionState = MutableStateFlow<AIGenerationState>(AIGenerationState.Idle)
 
     val autoTagState: StateFlow<AutoTagState> = _autoTagState.asStateFlow()
+    val aiTagState: StateFlow<AIGenerationState> = _aiTagState.asStateFlow()
+    val aiDescriptionState: StateFlow<AIGenerationState> = _aiDescriptionState.asStateFlow()
 
     /**
      * Combines tag and search query into a single flow so that [flatMapLatest] below
@@ -198,6 +215,48 @@ class BookmarkViewModel(
 
     fun clearAutoTagState() {
         _autoTagState.value = AutoTagState.Idle
+    }
+
+    fun generateAiTags(url: String, title: String, description: String) {
+        val generator = aiTagGenerator ?: return
+        viewModelScope.launch {
+            _aiTagState.value = AIGenerationState.Loading
+            generator(url, title, description).fold(
+                onSuccess = { tags ->
+                    _aiTagState.value = if (tags.isEmpty()) {
+                        AIGenerationState.Error("AI could not generate tags for this bookmark")
+                    } else {
+                        AIGenerationState.TagsSuccess(tags)
+                    }
+                },
+                onFailure = { e ->
+                    _aiTagState.value = AIGenerationState.Error(e.message ?: "AI tag generation failed")
+                }
+            )
+        }
+    }
+
+    fun generateAiDescription(url: String, title: String) {
+        val generator = aiDescriptionGenerator ?: return
+        viewModelScope.launch {
+            _aiDescriptionState.value = AIGenerationState.Loading
+            generator(url, title).fold(
+                onSuccess = { desc ->
+                    _aiDescriptionState.value = AIGenerationState.DescriptionSuccess(desc)
+                },
+                onFailure = { e ->
+                    _aiDescriptionState.value = AIGenerationState.Error(e.message ?: "AI description generation failed")
+                }
+            )
+        }
+    }
+
+    fun clearAiTagState() {
+        _aiTagState.value = AIGenerationState.Idle
+    }
+
+    fun clearAiDescriptionState() {
+        _aiDescriptionState.value = AIGenerationState.Idle
     }
 
     fun clearError() {
