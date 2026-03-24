@@ -1,6 +1,7 @@
 package com.biafra23.anchorvault.desktop
 
 import com.biafra23.anchorvault.sync.BitwardenCredentials
+import com.biafra23.anchorvault.sync.SettingsFieldHistory
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -77,6 +78,31 @@ class DesktopBitwardenPreferences {
 
     fun loadAutoTagEnabled(): Boolean {
         return loadSettings()["autoTagEnabled"]?.toBooleanStrictOrNull() ?: false
+    }
+
+    fun saveFieldHistory(history: SettingsFieldHistory) {
+        val settings = loadSettings().toMutableMap()
+        settings["fieldHistory"] = json.encodeToString(history)
+        settingsFile.writeText(json.encodeToString(settings))
+    }
+
+    fun loadFieldHistory(): SettingsFieldHistory {
+        val raw = loadSettings()["fieldHistory"] ?: return SettingsFieldHistory()
+        return runCatching { json.decodeFromString<SettingsFieldHistory>(raw) }
+            .getOrDefault(SettingsFieldHistory())
+    }
+
+    fun addToFieldHistory(credentials: BitwardenCredentials) {
+        val existing = loadFieldHistory()
+        val updated = SettingsFieldHistory(
+            apiBaseUrls = (existing.apiBaseUrls + credentials.apiBaseUrl).filter { it.isNotBlank() }.distinct(),
+            identityUrls = (existing.identityUrls + credentials.identityUrl).filter { it.isNotBlank() }.distinct(),
+            clientIds = (existing.clientIds + credentials.clientId).filter { it.isNotBlank() }.distinct(),
+            clientSecrets = (existing.clientSecrets + credentials.clientSecret).filter { it.isNotBlank() }.distinct(),
+            folderNames = (existing.folderNames + credentials.folderName).filter { it.isNotBlank() }.distinct(),
+            emails = (existing.emails + listOfNotNull(credentials.email)).filter { it.isNotBlank() }.distinct()
+        )
+        saveFieldHistory(updated)
     }
 
     private fun loadSettings(): Map<String, String> {

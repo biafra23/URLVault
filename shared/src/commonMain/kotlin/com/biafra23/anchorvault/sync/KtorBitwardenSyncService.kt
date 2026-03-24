@@ -1,6 +1,8 @@
 package com.biafra23.anchorvault.sync
 
 import com.biafra23.anchorvault.crypto.BitwardenEncryption
+import com.biafra23.anchorvault.crypto.CryptoProvider
+import com.biafra23.anchorvault.crypto.base64Encode
 import com.biafra23.anchorvault.model.Bookmark
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -90,7 +92,10 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         log("Validating credentials (identityUrl=${credentials.identityUrl}, apiUrl=${credentials.apiBaseUrl})")
         return try {
             val token = getAccessToken(credentials)
-                ?: return "Authentication failed — check your Client ID, Client Secret, and Identity URL."
+                ?: return if (credentials.authMethod == AuthMethod.PASSWORD)
+                    "Authentication failed — check your email, master password, and server URL."
+                else
+                    "Authentication failed — check your Client ID, Client Secret, and Identity URL."
             getOrCreateFolder(credentials, token, credentials.folderName)
             log("Credential validation successful")
             null // success
@@ -190,10 +195,16 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
     // region Private Bitwarden API helpers
 
     @Serializable
+    private data class PreloginResponse(
+        val kdf: Int = 0,              // 0 = PBKDF2, 1 = Argon2id
+        val kdfIterations: Int = 600000
+    )
+
+    @Serializable
     private data class TokenResponse(
         val access_token: String,
         val expires_in: Long = 3600,
-        // Encryption-related fields (present when authenticating with API key)
+        // Encryption-related fields
         val Key: String? = null,
         val Kdf: Int? = null,          // 0 = PBKDF2, 1 = Argon2id
         val KdfIterations: Int? = null
@@ -217,6 +228,46 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
     @Serializable
     private data class VaultListResponse(val data: List<VaultItemResponse>)
 
+    /**
+     * Calls the /accounts/prelogin endpoint to retrieve KDF parameters for the account.
+     */
+    private suspend fun prelogin(creds: BitwardenCredentials): PreloginResponse {
+        val email = requireNotNull(creds.email) { "Email is required for password authentication" }
+        val preloginUrl = "${creds.apiBaseUrl}/accounts/prelogin"
+        log("Prelogin for $email at $preloginUrl")
+        val response = httpClient.post(preloginUrl) {
+            contentType(ContentType.Application.Json)
+            setBody(mapOf("email" to email))
+        }
+        if (!response.status.isSuccess()) {
+            val body = runCatching { response.body<String>() }.getOrDefault("")
+            log("ERROR Prelogin failed (${response.status}): $body")
+            throw IllegalStateException(
+                "Prelogin failed (${response.status}) at $preloginUrl: $body"
+            )
+        }
+        return response.body<PreloginResponse>().also {
+            log("Prelogin OK — kdf=${it.kdf}, iterations=${it.kdfIterations}")
+        }
+    }
+
+    /**
+     * Derives the "master password hash" that Bitwarden accepts as the password credential.
+     * masterPasswordHash = base64(PBKDF2(masterKey, masterPassword, 1 iteration, 32 bytes))
+     *
+     * PBKDF2 with 1 iteration and 32-byte output (= one SHA-256 block) reduces to:
+     *   HMAC-SHA256(key=masterKey, data=salt || INT32BE(1))
+     *
+     * We compute this directly via HMAC to avoid Java's PBEKeySpec char-encoding
+     * issue which corrupts raw byte keys with values > 127.
+     */
+    private fun hashMasterPassword(masterKey: ByteArray, masterPassword: String): String {
+        val salt = masterPassword.encodeToByteArray()
+        val blockIndex = byteArrayOf(0, 0, 0, 1) // INT32BE(1)
+        val hash = CryptoProvider.hmacSha256(masterKey, salt + blockIndex)
+        return base64Encode(hash)
+    }
+
     private suspend fun getAccessToken(creds: BitwardenCredentials): String? {
         authMutex.withLock {
             val now = Clock.System.now().toEpochMilliseconds()
@@ -225,19 +276,54 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
             accessToken = null
         }
         val tokenUrl = "${creds.identityUrl}/connect/token"
-        log("Requesting token from $tokenUrl")
-        val httpResponse: HttpResponse = httpClient.submitForm(
-            url = tokenUrl,
-            formParameters = Parameters.build {
-                append("grant_type", "client_credentials")
-                append("scope", "api")
-                append("client_id", creds.clientId)
-                append("client_secret", creds.clientSecret)
-                append("deviceType", "21") // SDK / CLI device type
-                append("deviceIdentifier", DEVICE_IDENTIFIER)
-                append("deviceName", "AnchorVault")
+        log("Requesting token from $tokenUrl (authMethod=${creds.authMethod})")
+
+        val httpResponse: HttpResponse = when (creds.authMethod) {
+            AuthMethod.API_KEY -> httpClient.submitForm(
+                url = tokenUrl,
+                formParameters = Parameters.build {
+                    append("grant_type", "client_credentials")
+                    append("scope", "api")
+                    append("client_id", creds.clientId)
+                    append("client_secret", creds.clientSecret)
+                    append("deviceType", "21")
+                    append("deviceIdentifier", DEVICE_IDENTIFIER)
+                    append("deviceName", "AnchorVault")
+                }
+            )
+            AuthMethod.PASSWORD -> {
+                val email = requireNotNull(creds.email) { "Email is required for password auth" }
+                val password = requireNotNull(creds.masterPassword) { "Master password is required for password auth" }
+
+                // Step 1: prelogin to get KDF params
+                val preloginResp = prelogin(creds)
+                require(preloginResp.kdf == 0) {
+                    "Only PBKDF2 (kdf=0) is supported, got kdf=${preloginResp.kdf}"
+                }
+
+                // Step 2: derive master key and hash
+                val masterKey = BitwardenEncryption.deriveMasterKey(
+                    password, email, preloginResp.kdfIterations
+                )
+                val hashedPassword = hashMasterPassword(masterKey, password)
+
+                // Step 3: token request with password grant
+                httpClient.submitForm(
+                    url = tokenUrl,
+                    formParameters = Parameters.build {
+                        append("grant_type", "password")
+                        append("scope", "api offline_access")
+                        append("client_id", "web")
+                        append("username", email)
+                        append("password", hashedPassword)
+                        append("deviceType", "21")
+                        append("deviceIdentifier", DEVICE_IDENTIFIER)
+                        append("deviceName", "AnchorVault")
+                    }
+                )
             }
-        )
+        }
+
         if (!httpResponse.status.isSuccess()) {
             val body = runCatching { httpResponse.body<String>() }.getOrDefault("")
             log("ERROR Token request failed (${httpResponse.status}): $body")
@@ -461,15 +547,11 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                     setBody(cipherBody)
                 }
             } else {
-                // CREATE: POST to /ciphers/create with wrapper (folderId at wrapper level)
-                val createBody = CipherCreateRequest(
-                    cipher = cipherBody,
-                    folderId = folderId
-                )
-                httpClient.post("${creds.apiBaseUrl}/ciphers/create") {
+                // CREATE: POST to /ciphers with folderId in the cipher body
+                httpClient.post("${creds.apiBaseUrl}/ciphers") {
                     bearerAuth(token)
                     contentType(ContentType.Application.Json)
-                    setBody(createBody)
+                    setBody(cipherBody)
                 }
             }
             if (!response.status.isSuccess()) {

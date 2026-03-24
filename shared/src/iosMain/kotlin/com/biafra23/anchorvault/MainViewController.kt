@@ -41,7 +41,6 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
                 val autoTagState by viewModel.autoTagState.collectAsState()
                 AddEditBookmarkScreen(
                     existingBookmark = screen.existing,
-                    existingTags = uiState.allTags,
                     autoTagEnabled = autoTagEnabled,
                     autoTagState = autoTagState,
                     onAutoTag = { url -> viewModel.fetchAutoTags(url) },

@@ -63,7 +63,6 @@ fun main() = application {
                     val autoTagState by viewModel.autoTagState.collectAsState()
                     AddEditBookmarkScreen(
                         existingBookmark = screen.existing,
-                        existingTags = uiState.allTags,
                         autoTagEnabled = autoTagEnabled,
                         autoTagState = autoTagState,
                         onAutoTag = { url -> viewModel.fetchAutoTags(url) },
@@ -91,9 +90,11 @@ fun main() = application {
                         },
                         onSaveCredentials = { credentials ->
                             prefs.saveCredentials(credentials)
+                            prefs.addToFieldHistory(credentials)
                             viewModel.configureBitwarden(credentials)
                         },
-                        onNavigateBack = { currentScreen = DesktopScreen.List }
+                        onNavigateBack = { currentScreen = DesktopScreen.List },
+                        fieldHistory = prefs.loadFieldHistory()
                     )
                 }
             }

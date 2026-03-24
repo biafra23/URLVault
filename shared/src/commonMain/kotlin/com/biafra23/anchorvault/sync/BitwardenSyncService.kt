@@ -69,22 +69,35 @@ interface BitwardenSyncService {
 }
 
 /**
+ * Authentication method for the Bitwarden API.
+ */
+@Serializable
+enum class AuthMethod {
+    /** OAuth 2.0 client credentials (API key from Bitwarden settings). */
+    API_KEY,
+    /** Email + master password (password grant with prelogin KDF). */
+    PASSWORD
+}
+
+/**
  * Credentials required to authenticate with the Bitwarden REST API.
  *
+ * @param authMethod     How to authenticate: [AuthMethod.API_KEY] or [AuthMethod.PASSWORD].
  * @param apiBaseUrl     The base URL of the Bitwarden API (defaults to official cloud).
- * @param clientId       The OAuth 2.0 client ID obtained from Bitwarden settings.
- * @param clientSecret   The OAuth 2.0 client secret obtained from Bitwarden settings.
+ * @param identityUrl    The base URL of the Bitwarden Identity service.
+ * @param clientId       OAuth 2.0 client ID (required for [AuthMethod.API_KEY]).
+ * @param clientSecret   OAuth 2.0 client secret (required for [AuthMethod.API_KEY]).
+ * @param email          Account email (required for [AuthMethod.PASSWORD], optional for API_KEY encryption).
+ * @param masterPassword Master password (required for [AuthMethod.PASSWORD], optional for API_KEY encryption).
  * @param folderName     Name of the Bitwarden folder used to store AnchorVault bookmarks.
- * @param masterPassword Optional. When provided, vault data is encrypted client-side
- *                       using the Bitwarden protocol, making it visible in the web UI.
- * @param email          Required when [masterPassword] is set. Used as the PBKDF2 salt.
  */
 @Serializable
 data class BitwardenCredentials(
+    val authMethod: AuthMethod = AuthMethod.API_KEY,
     val apiBaseUrl: String = "https://api.bitwarden.com",
     val identityUrl: String = "https://identity.bitwarden.com",
-    val clientId: String,
-    val clientSecret: String,
+    val clientId: String = "",
+    val clientSecret: String = "",
     val folderName: String = "AnchorVault",
     val masterPassword: String? = null,
     val email: String? = null

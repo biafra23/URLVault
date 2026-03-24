@@ -80,7 +80,6 @@ class MainActivity : ComponentActivity() {
                         AddEditBookmarkScreen(
                             existingBookmark = screen.existing,
                             prefilledUrl = screen.prefilledUrl,
-                            existingTags = uiState.allTags,
                             autoTagEnabled = autoTagEnabled,
                             autoTagState = autoTagState,
                             onAutoTag = { url -> bookmarkViewModel.fetchAutoTags(url) },
@@ -122,9 +121,11 @@ class MainActivity : ComponentActivity() {
                             },
                             onSaveCredentials = { credentials ->
                                 bitwardenPrefs.saveCredentials(credentials)
+                                bitwardenPrefs.addToFieldHistory(credentials)
                                 bookmarkViewModel.configureBitwarden(credentials)
                             },
-                            onNavigateBack = { currentScreen = Screen.List }
+                            onNavigateBack = { currentScreen = Screen.List },
+                            fieldHistory = bitwardenPrefs.loadFieldHistory()
                         )
                     }
                 }
