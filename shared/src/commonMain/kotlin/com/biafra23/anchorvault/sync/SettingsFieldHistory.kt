@@ -6,8 +6,6 @@ import kotlinx.serialization.Serializable
 data class SettingsFieldHistory(
     val apiBaseUrls: List<String> = emptyList(),
     val identityUrls: List<String> = emptyList(),
-    val clientIds: List<String> = emptyList(),
-    val clientSecrets: List<String> = emptyList(),
     val folderNames: List<String> = emptyList(),
     val emails: List<String> = emptyList()
     // masterPassword intentionally excluded

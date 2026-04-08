@@ -40,10 +40,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
-import com.biafra23.anchorvault.sync.AuthMethod
 import com.biafra23.anchorvault.sync.BitwardenCredentials
 import com.biafra23.anchorvault.sync.BitwardenSyncService
 import com.biafra23.anchorvault.sync.SettingsFieldHistory
@@ -68,11 +69,14 @@ fun SettingsScreen(
     fieldHistory: SettingsFieldHistory = SettingsFieldHistory(),
     modifier: Modifier = Modifier
 ) {
-    var authMethod by remember { mutableStateOf(currentCredentials?.authMethod ?: AuthMethod.API_KEY) }
-    var apiBaseUrl by remember { mutableStateOf(currentCredentials?.apiBaseUrl ?: "") }
-    var identityUrl by remember { mutableStateOf(currentCredentials?.identityUrl ?: "") }
-    var clientId by remember { mutableStateOf(currentCredentials?.clientId ?: "") }
-    var clientSecret by remember { mutableStateOf(currentCredentials?.clientSecret ?: "") }
+    // Strip the /api suffix so the user sees their base server URL, not the derived API URL
+    var serverUrl by remember {
+        mutableStateOf(
+            currentCredentials?.apiBaseUrl?.removeSuffix("/api")
+                ?.takeIf { it != "https://api.bitwarden.com" }
+                ?: ""
+        )
+    }
     var folderName by remember { mutableStateOf(currentCredentials?.folderName ?: "AnchorVault") }
     var useSelfHosted by remember {
         mutableStateOf(
@@ -81,9 +85,7 @@ fun SettingsScreen(
     }
     var email by remember { mutableStateOf(currentCredentials?.email ?: "") }
     var masterPassword by remember { mutableStateOf(currentCredentials?.masterPassword ?: "") }
-    var enableEncryption by remember { mutableStateOf(currentCredentials?.masterPassword != null) }
 
-    var clientSecretVisible by remember { mutableStateOf(false) }
     var masterPasswordVisible by remember { mutableStateOf(false) }
 
     var isValidating by remember { mutableStateOf(false) }
@@ -129,42 +131,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary
             )
             Text(
-                text = "Configure your Bitwarden credentials to enable cross-device sync.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // Auth method selector
-            Text(
-                text = "Authentication method",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = { authMethod = AuthMethod.PASSWORD },
-                    modifier = Modifier.weight(1f),
-                    enabled = authMethod != AuthMethod.PASSWORD
-                ) {
-                    Text("Email & Password")
-                }
-                Button(
-                    onClick = { authMethod = AuthMethod.API_KEY },
-                    modifier = Modifier.weight(1f),
-                    enabled = authMethod != AuthMethod.API_KEY
-                ) {
-                    Text("API Key")
-                }
-            }
-            Text(
-                text = if (authMethod == AuthMethod.PASSWORD)
-                    "Sign in with your Bitwarden email and master password. Vault encryption is automatic."
-                else
-                    "Use an API key from Bitwarden > Settings > Security > API Key. " +
-                        "Your master password is not required unless you want vault encryption.",
+                text = "Sign in with your Bitwarden email and master password to enable cross-device sync.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -181,106 +148,56 @@ fun SettingsScreen(
                     onCheckedChange = {
                         useSelfHosted = it
                         if (!it) {
-                            apiBaseUrl = ""
-                            identityUrl = ""
+                            serverUrl = ""
                         }
                     }
                 )
             }
 
             if (useSelfHosted) {
-                if (authMethod == AuthMethod.PASSWORD) {
-                    // Password auth: single server URL — API and Identity are derived
-                    AutocompleteTextField(
-                        value = apiBaseUrl,
-                        onValueChange = { apiBaseUrl = it },
-                        label = "Server URL",
-                        placeholder = "https://your-bitwarden.com",
-                        suggestions = fieldHistory.apiBaseUrls,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                } else {
-                    // API Key auth: separate API and Identity URLs
-                    AutocompleteTextField(
-                        value = apiBaseUrl,
-                        onValueChange = { apiBaseUrl = it },
-                        label = "API Base URL",
-                        placeholder = "https://your-bitwarden.com/api",
-                        suggestions = fieldHistory.apiBaseUrls,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    AutocompleteTextField(
-                        value = identityUrl,
-                        onValueChange = { identityUrl = it },
-                        label = "Identity URL",
-                        placeholder = "https://your-bitwarden.com/identity",
-                        suggestions = fieldHistory.identityUrls,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-
-            // --- Auth-method-specific fields ---
-
-            if (authMethod == AuthMethod.PASSWORD) {
-                // Password auth: email + master password
                 AutocompleteTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = "Bitwarden Account Email",
-                    placeholder = "you@example.com",
-                    suggestions = fieldHistory.emails,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = masterPassword,
-                    onValueChange = { masterPassword = it },
-                    label = { Text("Master Password") },
-                    singleLine = true,
-                    visualTransformation = if (masterPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { masterPasswordVisible = !masterPasswordVisible }) {
-                            Icon(
-                                imageVector = if (masterPasswordVisible) rememberVisibilityOffIcon() else rememberVisibilityIcon(),
-                                contentDescription = if (masterPasswordVisible) "Hide master password" else "Show master password"
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Text(
-                    text = "Your master password is stored encrypted on this device. "
-                        + "It is used to authenticate and to derive vault encryption keys.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                // API Key auth: client ID + secret
-                AutocompleteTextField(
-                    value = clientId,
-                    onValueChange = { clientId = it },
-                    label = "Client ID",
-                    placeholder = "user.xxxxxxxx-...",
-                    suggestions = fieldHistory.clientIds,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                AutocompleteTextField(
-                    value = clientSecret,
-                    onValueChange = { clientSecret = it },
-                    label = "Client Secret",
-                    suggestions = fieldHistory.clientSecrets,
-                    visualTransformation = if (clientSecretVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { clientSecretVisible = !clientSecretVisible }) {
-                            Icon(
-                                imageVector = if (clientSecretVisible) rememberVisibilityOffIcon() else rememberVisibilityIcon(),
-                                contentDescription = if (clientSecretVisible) "Hide client secret" else "Show client secret"
-                            )
-                        }
-                    },
+                    value = serverUrl,
+                    onValueChange = { serverUrl = it },
+                    label = "Server URL",
+                    placeholder = "https://your-bitwarden.com",
+                    suggestions = fieldHistory.apiBaseUrls,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
+
+            // --- Email + Master Password ---
+            AutocompleteTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = "Bitwarden Account Email",
+                placeholder = "you@example.com",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                suggestions = fieldHistory.emails,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = masterPassword,
+                onValueChange = { masterPassword = it },
+                label = { Text("Master Password") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                visualTransformation = if (masterPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { masterPasswordVisible = !masterPasswordVisible }) {
+                        Icon(
+                            imageVector = if (masterPasswordVisible) rememberVisibilityOffIcon() else rememberVisibilityIcon(),
+                            contentDescription = if (masterPasswordVisible) "Hide master password" else "Show master password"
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                text = "Your master password is stored encrypted on this device. "
+                    + "It is used to authenticate and to derive vault encryption keys.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             AutocompleteTextField(
                 value = folderName,
@@ -291,110 +208,28 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // --- Vault Encryption Section (only for API Key auth) ---
-            if (authMethod == AuthMethod.API_KEY) {
-                Spacer(modifier = Modifier.height(4.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "Vault Encryption (Optional)",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "Without your master password, synced data is stored unencrypted on the server "
-                        + "and will not be visible in the Bitwarden/Vaultwarden web UI. "
-                        + "Provide your master password to enable end-to-end encryption — "
-                        + "your bookmarks will then appear in the web vault like any other item.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Enable vault encryption", style = MaterialTheme.typography.bodyLarge)
-                    Switch(
-                        checked = enableEncryption,
-                        onCheckedChange = { enableEncryption = it }
-                    )
-                }
-
-                if (enableEncryption) {
-                    AutocompleteTextField(
-                        value = email,
-                        onValueChange = { email = it },
-                        label = "Bitwarden Account Email",
-                        placeholder = "you@example.com",
-                        suggestions = fieldHistory.emails,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = masterPassword,
-                        onValueChange = { masterPassword = it },
-                        label = { Text("Master Password") },
-                        singleLine = true,
-                        visualTransformation = if (masterPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { masterPasswordVisible = !masterPasswordVisible }) {
-                                Icon(
-                                    imageVector = if (masterPasswordVisible) rememberVisibilityOffIcon() else rememberVisibilityIcon(),
-                                    contentDescription = if (masterPasswordVisible) "Hide master password" else "Show master password"
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Text(
-                        text = "Your master password is stored encrypted on this device and is never sent to any server. "
-                            + "It is only used locally to derive encryption keys.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // Determine whether the form is complete
-            val isPasswordAuth = authMethod == AuthMethod.PASSWORD
-            val needsEncryptionFields = isPasswordAuth || enableEncryption
-            val formValid = when (authMethod) {
-                AuthMethod.API_KEY -> clientId.isNotBlank() && clientSecret.isNotBlank()
-                    && (!enableEncryption || (email.isNotBlank() && masterPassword.isNotBlank()))
-                AuthMethod.PASSWORD -> email.isNotBlank() && masterPassword.isNotBlank()
-            }
+            val formValid = email.isNotBlank() && masterPassword.isNotBlank()
 
             Button(
                 onClick = {
-                    val rawUrl = apiBaseUrl.trim().trimEnd('/')
-                    val serverUrl = if (rawUrl.isNotBlank() && !rawUrl.contains("://")) "https://$rawUrl" else rawUrl
+                    val rawUrl = serverUrl.trim().trimEnd('/')
+                    val normalizedUrl = if (rawUrl.isNotBlank() && !rawUrl.contains("://")) "https://$rawUrl" else rawUrl
                     val effectiveApiBaseUrl = if (useSelfHosted) {
-                        if (authMethod == AuthMethod.PASSWORD) "$serverUrl/api" else serverUrl.ifBlank { "" }
+                        "$normalizedUrl/api"
                     } else {
                         "https://api.bitwarden.com"
                     }
                     val effectiveIdentityUrl = if (useSelfHosted) {
-                        if (authMethod == AuthMethod.PASSWORD) {
-                            "$serverUrl/identity"
-                        } else {
-                            val rawIdentity = identityUrl.trim().trimEnd('/')
-                            if (rawIdentity.isNotBlank() && !rawIdentity.contains("://")) "https://$rawIdentity" else rawIdentity
-                        }
+                        "$normalizedUrl/identity"
                     } else {
                         "https://identity.bitwarden.com"
                     }
                     val credentials = BitwardenCredentials(
-                        authMethod = authMethod,
                         apiBaseUrl = effectiveApiBaseUrl,
                         identityUrl = effectiveIdentityUrl,
-                        clientId = clientId.trim(),
-                        clientSecret = clientSecret.trim(),
                         folderName = folderName.trim().ifBlank { "AnchorVault" },
-                        masterPassword = if (needsEncryptionFields) masterPassword else null,
-                        email = if (needsEncryptionFields) email.trim().lowercase() else null
+                        masterPassword = masterPassword,
+                        email = email.trim().lowercase()
                     )
                     isValidating = true
                     validationResult = null
@@ -536,6 +371,7 @@ private fun AutocompleteTextField(
     suggestions: List<String>,
     modifier: Modifier = Modifier,
     placeholder: String? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     trailingIcon: @Composable (() -> Unit)? = null
 ) {
@@ -558,6 +394,7 @@ private fun AutocompleteTextField(
             label = { Text(label) },
             placeholder = placeholder?.let { { Text(it) } },
             singleLine = true,
+            keyboardOptions = keyboardOptions,
             visualTransformation = visualTransformation,
             trailingIcon = trailingIcon,
             modifier = Modifier

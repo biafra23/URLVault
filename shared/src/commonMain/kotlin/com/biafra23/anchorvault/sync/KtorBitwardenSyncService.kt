@@ -92,10 +92,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         log("Validating credentials (identityUrl=${credentials.identityUrl}, apiUrl=${credentials.apiBaseUrl})")
         return try {
             val token = getAccessToken(credentials)
-                ?: return if (credentials.authMethod == AuthMethod.PASSWORD)
-                    "Authentication failed — check your email, master password, and server URL."
-                else
-                    "Authentication failed — check your Client ID, Client Secret, and Identity URL."
+                ?: return "Authentication failed — check your email, master password, and server URL."
             getOrCreateFolder(credentials, token, credentials.folderName)
             log("Credential validation successful")
             null // success
@@ -276,53 +273,37 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
             accessToken = null
         }
         val tokenUrl = "${creds.identityUrl}/connect/token"
-        log("Requesting token from $tokenUrl (authMethod=${creds.authMethod})")
+        log("Requesting token from $tokenUrl")
 
-        val httpResponse: HttpResponse = when (creds.authMethod) {
-            AuthMethod.API_KEY -> httpClient.submitForm(
-                url = tokenUrl,
-                formParameters = Parameters.build {
-                    append("grant_type", "client_credentials")
-                    append("scope", "api")
-                    append("client_id", creds.clientId)
-                    append("client_secret", creds.clientSecret)
-                    append("deviceType", "21")
-                    append("deviceIdentifier", DEVICE_IDENTIFIER)
-                    append("deviceName", "AnchorVault")
-                }
-            )
-            AuthMethod.PASSWORD -> {
-                val email = requireNotNull(creds.email) { "Email is required for password auth" }
-                val password = requireNotNull(creds.masterPassword) { "Master password is required for password auth" }
+        val email = requireNotNull(creds.email) { "Email is required" }
+        val password = requireNotNull(creds.masterPassword) { "Master password is required" }
 
-                // Step 1: prelogin to get KDF params
-                val preloginResp = prelogin(creds)
-                require(preloginResp.kdf == 0) {
-                    "Only PBKDF2 (kdf=0) is supported, got kdf=${preloginResp.kdf}"
-                }
-
-                // Step 2: derive master key and hash
-                val masterKey = BitwardenEncryption.deriveMasterKey(
-                    password, email, preloginResp.kdfIterations
-                )
-                val hashedPassword = hashMasterPassword(masterKey, password)
-
-                // Step 3: token request with password grant
-                httpClient.submitForm(
-                    url = tokenUrl,
-                    formParameters = Parameters.build {
-                        append("grant_type", "password")
-                        append("scope", "api offline_access")
-                        append("client_id", "web")
-                        append("username", email)
-                        append("password", hashedPassword)
-                        append("deviceType", "21")
-                        append("deviceIdentifier", DEVICE_IDENTIFIER)
-                        append("deviceName", "AnchorVault")
-                    }
-                )
-            }
+        // Step 1: prelogin to get KDF params
+        val preloginResp = prelogin(creds)
+        require(preloginResp.kdf == 0) {
+            "Only PBKDF2 (kdf=0) is supported, got kdf=${preloginResp.kdf}"
         }
+
+        // Step 2: derive master key and hash
+        val masterKey = BitwardenEncryption.deriveMasterKey(
+            password, email, preloginResp.kdfIterations
+        )
+        val hashedPassword = hashMasterPassword(masterKey, password)
+
+        // Step 3: token request with password grant
+        val httpResponse: HttpResponse = httpClient.submitForm(
+            url = tokenUrl,
+            formParameters = Parameters.build {
+                append("grant_type", "password")
+                append("scope", "api offline_access")
+                append("client_id", "web")
+                append("username", email)
+                append("password", hashedPassword)
+                append("deviceType", "21")
+                append("deviceIdentifier", DEVICE_IDENTIFIER)
+                append("deviceName", "AnchorVault")
+            }
+        )
 
         if (!httpResponse.status.isSuccess()) {
             val body = runCatching { httpResponse.body<String>() }.getOrDefault("")
@@ -334,8 +315,8 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         log("Token acquired successfully")
         val response: TokenResponse = httpResponse.body()
 
-        // Derive vault encryption keys if master password is provided
-        if (creds.masterPassword != null && creds.email != null && response.Key != null) {
+        // Derive vault encryption keys from the master password
+        if (response.Key != null) {
             if (vaultEncKey == null) {
                 try {
                     val kdfIterations = response.KdfIterations ?: 600000
@@ -344,7 +325,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
 
                     log("Deriving vault encryption keys (PBKDF2, $kdfIterations iterations)")
                     val masterKey = BitwardenEncryption.deriveMasterKey(
-                        creds.masterPassword, creds.email, kdfIterations
+                        password, email, kdfIterations
                     )
                     val (stretchedEncKey, stretchedMacKey) = BitwardenEncryption.stretchMasterKey(masterKey)
                     val (vEncKey, vMacKey) = BitwardenEncryption.decryptEncryptionKey(
@@ -547,11 +528,16 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                     setBody(cipherBody)
                 }
             } else {
-                // CREATE: POST to /ciphers with folderId in the cipher body
-                httpClient.post("${creds.apiBaseUrl}/ciphers") {
+                // CREATE: POST to /ciphers/create with folderId in the wrapper
+                val createRequest = CipherCreateRequest(
+                    cipher = cipherBody.copy(folderId = null),
+                    folderId = folderId,
+                    collectionIds = null
+                )
+                httpClient.post("${creds.apiBaseUrl}/ciphers/create") {
                     bearerAuth(token)
                     contentType(ContentType.Application.Json)
-                    setBody(cipherBody)
+                    setBody(createRequest)
                 }
             }
             if (!response.status.isSuccess()) {

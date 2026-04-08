@@ -97,8 +97,6 @@ class DesktopBitwardenPreferences {
         val updated = SettingsFieldHistory(
             apiBaseUrls = (existing.apiBaseUrls + credentials.apiBaseUrl).filter { it.isNotBlank() }.distinct(),
             identityUrls = (existing.identityUrls + credentials.identityUrl).filter { it.isNotBlank() }.distinct(),
-            clientIds = (existing.clientIds + credentials.clientId).filter { it.isNotBlank() }.distinct(),
-            clientSecrets = (existing.clientSecrets + credentials.clientSecret).filter { it.isNotBlank() }.distinct(),
             folderNames = (existing.folderNames + credentials.folderName).filter { it.isNotBlank() }.distinct(),
             emails = (existing.emails + listOfNotNull(credentials.email)).filter { it.isNotBlank() }.distinct()
         )
