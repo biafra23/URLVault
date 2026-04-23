@@ -230,7 +230,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
      */
     private suspend fun prelogin(creds: BitwardenCredentials): PreloginResponse {
         val email = requireNotNull(creds.email) { "Email is required for password authentication" }
-        val preloginUrl = "${creds.apiBaseUrl}/accounts/prelogin"
+        val preloginUrl = "${creds.identityUrl}/accounts/prelogin"
         log("Prelogin for $email at $preloginUrl")
         val response = httpClient.post(preloginUrl) {
             contentType(ContentType.Application.Json)

@@ -151,6 +151,10 @@ fun AddEditBookmarkScreen(
     LaunchedEffect(aiTagState) {
         when (aiTagState) {
             is AIGenerationState.TagsSuccess -> {
+                // Ensure results match current URL to avoid race conditions
+                val currentTarget = normalizeUrlForAi(url)
+                if (currentTarget != aiTagState.sourceUrl) return@LaunchedEffect
+
                 aiTagError = null
                 aiTagState.tags.forEach { tag ->
                     if (!selectedTags.contains(tag)) selectedTags.add(tag)
@@ -169,16 +173,17 @@ fun AddEditBookmarkScreen(
     LaunchedEffect(aiDescriptionState) {
         when (aiDescriptionState) {
             is AIGenerationState.DescriptionSuccess -> {
+                // Ensure results match current URL to avoid race conditions
+                val currentTarget = normalizeUrlForAi(url)
+                if (currentTarget != aiDescriptionState.sourceUrl) return@LaunchedEffect
+
                 aiDescriptionError = null
                 description = aiDescriptionState.description
                 onAiDescriptionConsumed()
                 // Chain-trigger AI tags now that we have a description
                 if (aiCoreEnabled && onAiGenerateTags != null) {
-                    val targetUrl = normalizeUrlForAi(url)
-                    if (targetUrl != null) {
-                        aiTagError = null
-                        onAiGenerateTags(targetUrl, title, aiDescriptionState.description)
-                    }
+                    aiTagError = null
+                    onAiGenerateTags(currentTarget!!, title, aiDescriptionState.description)
                 }
             }
             is AIGenerationState.Error -> {
@@ -193,6 +198,10 @@ fun AddEditBookmarkScreen(
     LaunchedEffect(aiTitleState) {
         when (aiTitleState) {
             is AIGenerationState.TitleSuccess -> {
+                // Ensure results match current URL to avoid race conditions
+                val currentTarget = normalizeUrlForAi(url)
+                if (currentTarget != aiTitleState.sourceUrl) return@LaunchedEffect
+
                 aiTitleError = null
                 // Only overwrite if current title is still empty
                 if (title.isBlank()) {

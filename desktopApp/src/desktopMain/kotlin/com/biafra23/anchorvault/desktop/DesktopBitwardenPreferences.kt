@@ -45,7 +45,9 @@ class DesktopBitwardenPreferences {
     private val secretKey: SecretKey by lazy { keyBackend.loadOrCreateKey() }
 
     fun saveCredentials(credentials: BitwardenCredentials) {
-        val plaintext = json.encodeToString(credentials).toByteArray(Charsets.UTF_8)
+        // Exclude master password from disk storage on Desktop for security compliance
+        val secureCreds = credentials.copy(masterPassword = null)
+        val plaintext = json.encodeToString(secureCreds).toByteArray(Charsets.UTF_8)
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORM)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey, GCMParameterSpec(GCM_TAG_BITS, iv))
@@ -94,9 +96,14 @@ class DesktopBitwardenPreferences {
 
     fun addToFieldHistory(credentials: BitwardenCredentials) {
         val existing = loadFieldHistory()
+        
+        // Strip suffixes to store clean base URLs for future suggestions
+        val serverBase = credentials.apiBaseUrl.removeSuffix("/api")
+            .removeSuffix("/identity")
+            .trimEnd('/')
+
         val updated = SettingsFieldHistory(
-            apiBaseUrls = (existing.apiBaseUrls + credentials.apiBaseUrl).filter { it.isNotBlank() }.distinct(),
-            identityUrls = (existing.identityUrls + credentials.identityUrl).filter { it.isNotBlank() }.distinct(),
+            serverUrls = (existing.serverUrls + serverBase).filter { it.isNotBlank() }.distinct(),
             folderNames = (existing.folderNames + credentials.folderName).filter { it.isNotBlank() }.distinct(),
             emails = (existing.emails + listOfNotNull(credentials.email)).filter { it.isNotBlank() }.distinct()
         )

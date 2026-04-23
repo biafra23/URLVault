@@ -127,17 +127,17 @@ class AICoreService {
                 appendLine()
                 appendLine("Use the following data for context:")
                 appendLine("URL: $url")
-                if (title.isNotBlank() && !title.contains("Please add title extraction")) {
+                if (title.isNotBlank()) {
                     appendLine("Title: $title")
                 }
-                if (description.isNotBlank() && !description.contains("Please add title extraction")) {
+                if (description.isNotBlank()) {
                     appendLine("User description: $description")
                 }
                 if (pageSummary.isNotBlank()) {
                     appendLine("Page summary: $pageSummary")
                 }
             }
-            Log.v(TAG, "AI Prompt: $prompt")
+            Log.v(TAG, "AI Prompt prepared for tag generation (titleIncluded=${title.isNotBlank()}, descriptionIncluded=${description.isNotBlank()}, pageSummaryIncluded=${pageSummary.isNotBlank()}, length=${prompt.length})")
             val text = runInference(prompt)
             Log.d(TAG, "AI Response: $text")
             text.split(",")
@@ -164,7 +164,7 @@ class AICoreService {
                 appendLine()
                 appendLine("Context data:")
                 appendLine("URL: $url")
-                if (title.isNotBlank() && !title.contains("Please add title extraction")) {
+                if (title.isNotBlank()) {
                     appendLine("Title: $title")
                 }
                 if (pageSummary.isNotBlank()) {

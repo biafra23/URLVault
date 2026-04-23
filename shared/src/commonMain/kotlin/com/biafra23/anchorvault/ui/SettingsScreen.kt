@@ -160,7 +160,7 @@ fun SettingsScreen(
                     onValueChange = { serverUrl = it },
                     label = "Server URL",
                     placeholder = "https://your-bitwarden.com",
-                    suggestions = fieldHistory.apiBaseUrls,
+                    suggestions = fieldHistory.serverUrls,
                     modifier = Modifier.fillMaxWidth()
                 )
             }

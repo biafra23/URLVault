@@ -2,11 +2,14 @@ package com.biafra23.anchorvault.sync
 
 import kotlinx.serialization.Serializable
 
+/**
+ * Persists history of fields entered in the Settings screen to provide autocomplete suggestions.
+ * Values are stored normalized (e.g. server base URLs without /api suffix).
+ */
 @Serializable
 data class SettingsFieldHistory(
-    val apiBaseUrls: List<String> = emptyList(),
-    val identityUrls: List<String> = emptyList(),
+    val serverUrls: List<String> = emptyList(),
     val folderNames: List<String> = emptyList(),
     val emails: List<String> = emptyList()
-    // masterPassword intentionally excluded
+    // masterPassword intentionally excluded for security
 )

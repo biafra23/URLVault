@@ -73,9 +73,14 @@ class AndroidBitwardenPreferences(context: Context) {
 
     fun addToFieldHistory(credentials: BitwardenCredentials) {
         val existing = loadFieldHistory()
+        
+        // Strip suffixes to store clean base URLs for future suggestions
+        val serverBase = credentials.apiBaseUrl.removeSuffix("/api")
+            .removeSuffix("/identity")
+            .trimEnd('/')
+
         val updated = SettingsFieldHistory(
-            apiBaseUrls = (existing.apiBaseUrls + credentials.apiBaseUrl).filter { it.isNotBlank() }.distinct(),
-            identityUrls = (existing.identityUrls + credentials.identityUrl).filter { it.isNotBlank() }.distinct(),
+            serverUrls = (existing.serverUrls + serverBase).filter { it.isNotBlank() }.distinct(),
             folderNames = (existing.folderNames + credentials.folderName).filter { it.isNotBlank() }.distinct(),
             emails = (existing.emails + listOfNotNull(credentials.email)).filter { it.isNotBlank() }.distinct()
         )

@@ -59,9 +59,9 @@ sealed class AutoTagState {
 sealed class AIGenerationState {
     data object Idle : AIGenerationState()
     data object Loading : AIGenerationState()
-    data class TagsSuccess(val tags: List<String>) : AIGenerationState()
-    data class DescriptionSuccess(val description: String) : AIGenerationState()
-    data class TitleSuccess(val title: String) : AIGenerationState()
+    data class TagsSuccess(val tags: List<String>, val sourceUrl: String? = null) : AIGenerationState()
+    data class DescriptionSuccess(val description: String, val sourceUrl: String? = null) : AIGenerationState()
+    data class TitleSuccess(val title: String, val sourceUrl: String? = null) : AIGenerationState()
     data class Error(val message: String) : AIGenerationState()
 }
 
@@ -230,7 +230,7 @@ class BookmarkViewModel(
                     _aiTagState.value = if (tags.isEmpty()) {
                         AIGenerationState.Error("AI could not generate tags for this bookmark")
                     } else {
-                        AIGenerationState.TagsSuccess(tags)
+                        AIGenerationState.TagsSuccess(tags, sourceUrl = url)
                     }
                 },
                 onFailure = { e ->
@@ -246,7 +246,7 @@ class BookmarkViewModel(
             _aiDescriptionState.value = AIGenerationState.Loading
             generator(url, title).fold(
                 onSuccess = { desc ->
-                    _aiDescriptionState.value = AIGenerationState.DescriptionSuccess(desc)
+                    _aiDescriptionState.value = AIGenerationState.DescriptionSuccess(desc, sourceUrl = url)
                 },
                 onFailure = { e ->
                     _aiDescriptionState.value = AIGenerationState.Error(e.message ?: "AI description generation failed")
@@ -261,7 +261,7 @@ class BookmarkViewModel(
             _aiTitleState.value = AIGenerationState.Loading
             generator(url).fold(
                 onSuccess = { title ->
-                    _aiTitleState.value = AIGenerationState.TitleSuccess(title)
+                    _aiTitleState.value = AIGenerationState.TitleSuccess(title, sourceUrl = url)
                 },
                 onFailure = { e ->
                     _aiTitleState.value = AIGenerationState.Error(e.message ?: "AI title generation failed")
