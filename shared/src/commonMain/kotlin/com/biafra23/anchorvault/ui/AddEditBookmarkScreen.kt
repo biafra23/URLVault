@@ -108,24 +108,36 @@ fun AddEditBookmarkScreen(
     }
 
     // Helper to trigger AI/autotag for a given URL
-    fun triggerAiForUrl(targetUrl: String) {
-        // println is not always visible in logcat for commonMain, use better way if possible
-        // but for now let's use it and also check other things.
-        if (aiTriggeredForUrl == targetUrl) return
+    fun triggerAiForUrl(targetUrl: String, force: Boolean = false) {
+        println("AddEditBookmarkScreen: triggerAiForUrl($targetUrl, force=$force)")
+        if (!force && aiTriggeredForUrl == targetUrl) {
+            println("AddEditBookmarkScreen: Already triggered for $targetUrl")
+            return
+        }
         aiTriggeredForUrl = targetUrl
 
-        // Trigger AI title generation if title is empty and AI is enabled
-        if (aiCoreEnabled && onAiGenerateTitle != null && title.isBlank()) {
-            aiTitleError = null
-            onAiGenerateTitle(targetUrl)
-        }
+        // If AI is available and enabled, use it for title/desc/tags
+        if (aiCoreEnabled) {
+            // Trigger AI title generation if title is empty
+            if (onAiGenerateTitle != null && title.isBlank()) {
+                println("AddEditBookmarkScreen: Triggering AI title generation")
+                aiTitleError = null
+                onAiGenerateTitle(targetUrl)
+            }
 
-        if (aiCoreEnabled && onAiGenerateDescription != null) {
-            aiDescriptionError = null
-            onAiGenerateDescription(targetUrl, title)
-        } else if (autoTagEnabled && onAutoTag != null) {
+            if (onAiGenerateDescription != null) {
+                println("AddEditBookmarkScreen: Triggering AI description generation")
+                aiDescriptionError = null
+                onAiGenerateDescription(targetUrl, title)
+            }
+        } else if (onAutoTag != null) {
+            // Fallback to legacy extraction (even if autoTagEnabled is false,
+            // we'll use it for title/description if they are blank).
+            println("AddEditBookmarkScreen: Triggering legacy metadata extraction")
             autoTagError = null
             onAutoTag(targetUrl)
+        } else {
+            println("AddEditBookmarkScreen: No tagging mechanism available")
         }
     }
 
@@ -135,19 +147,31 @@ fun AddEditBookmarkScreen(
             is AutoTagState.Success -> {
                 // Ensure results match current URL to avoid race conditions
                 val currentTarget = normalizeUrlForAi(url)
-                if (currentTarget != autoTagState.sourceUrl) return@LaunchedEffect
+                if (currentTarget != autoTagState.sourceUrl) {
+                    println("AddEditBookmarkScreen: Ignoring stale legacy results (${autoTagState.sourceUrl} != $currentTarget)")
+                    return@LaunchedEffect
+                }
 
                 autoTagError = null
-                autoTagState.tags.forEach { tag ->
-                    if (!selectedTags.contains(tag)) selectedTags.add(tag)
+
+                // Only apply tags if auto-tagging is enabled in settings
+                if (autoTagEnabled) {
+                    println("AddEditBookmarkScreen: Applying legacy tags: ${autoTagState.tags}")
+                    autoTagState.tags.forEach { tag ->
+                        if (!selectedTags.contains(tag)) selectedTags.add(tag)
+                    }
+                } else {
+                    println("AddEditBookmarkScreen: Skipping legacy tags because autoTagEnabled is false")
                 }
 
                 // If AI isn't handling title/description, use legacy extraction results
                 if (!aiCoreEnabled) {
                     if (title.isBlank() && !autoTagState.title.isNullOrBlank()) {
+                        println("AddEditBookmarkScreen: Applying legacy title: ${autoTagState.title}")
                         title = autoTagState.title
                     }
                     if (description.isBlank() && !autoTagState.description.isNullOrBlank()) {
+                        println("AddEditBookmarkScreen: Applying legacy description: ${autoTagState.description}")
                         description = autoTagState.description
                     }
                 }
@@ -351,9 +375,12 @@ fun AddEditBookmarkScreen(
                     .fillMaxWidth()
                     .onFocusChanged { focusState ->
                         if (!focusState.isFocused && !isEditMode) {
+                            println("AddEditBookmarkScreen: URL field lost focus. URL=$url")
                             val targetUrl = normalizeUrlForAi(url)
                             if (targetUrl != null) {
                                 triggerAiForUrl(targetUrl)
+                            } else {
+                                println("AddEditBookmarkScreen: Invalid URL on focus loss: $url")
                             }
                         }
                     }
