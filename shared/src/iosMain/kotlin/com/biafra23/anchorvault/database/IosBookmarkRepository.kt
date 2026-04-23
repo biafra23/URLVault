@@ -31,9 +31,17 @@ class IosBookmarkRepository : BookmarkRepository {
         _bookmarks.value.firstOrNull { it.id == id }
 
     override suspend fun upsertBookmark(bookmark: Bookmark) {
+        val sanitizedTags = bookmark.tags.map { tag ->
+            tag.trim()
+                .replace(Regex("[\\\\\\[\\]\\\"']"), "")
+                .trim()
+        }.filter { it.isNotBlank() }
+
+        val sanitizedBookmark = bookmark.copy(tags = sanitizedTags)
+
         _bookmarks.value = _bookmarks.value
             .filterNot { it.id == bookmark.id }
-            .plus(bookmark)
+            .plus(sanitizedBookmark)
             .sortedByDescending { it.updatedAt }
     }
 

@@ -33,12 +33,20 @@ data class BookmarkEntity(
             // Legacy comma-separated format for backwards compatibility
             tags.split(",").map { it.trim() }.filter { it.isNotBlank() }
         }
+
+        // Sanitize every tag to ensure no brackets or quotes remain from previous bugs
+        val sanitizedTags = tagsList.map { tag ->
+            tag.trim()
+                .replace(Regex("[\\\\\\[\\]\\\"']"), "") // Remove \, [, ], ", and '
+                .trim()
+        }.filter { it.isNotBlank() }
+
         return Bookmark(
             id = id,
             url = url,
             title = title,
             description = description,
-            tags = tagsList,
+            tags = sanitizedTags,
             createdAt = createdAt,
             updatedAt = updatedAt,
             isFavorite = isFavorite
@@ -48,15 +56,24 @@ data class BookmarkEntity(
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
 
-        fun fromDomain(bookmark: Bookmark): BookmarkEntity = BookmarkEntity(
-            id = bookmark.id,
-            url = bookmark.url,
-            title = bookmark.title,
-            description = bookmark.description,
-            tags = json.encodeToString(bookmark.tags),
-            createdAt = bookmark.createdAt,
-            updatedAt = bookmark.updatedAt,
-            isFavorite = bookmark.isFavorite
-        )
+        fun fromDomain(bookmark: Bookmark): BookmarkEntity {
+            // Ensure we sanitize before saving to keep the database clean
+            val sanitizedTags = bookmark.tags.map { tag ->
+                tag.trim()
+                    .replace(Regex("[\\\\\\[\\]\\\"']"), "")
+                    .trim()
+            }.filter { it.isNotBlank() }
+
+            return BookmarkEntity(
+                id = bookmark.id,
+                url = bookmark.url,
+                title = bookmark.title,
+                description = bookmark.description,
+                tags = json.encodeToString(sanitizedTags),
+                createdAt = bookmark.createdAt,
+                updatedAt = bookmark.updatedAt,
+                isFavorite = bookmark.isFavorite
+            )
+        }
     }
 }
