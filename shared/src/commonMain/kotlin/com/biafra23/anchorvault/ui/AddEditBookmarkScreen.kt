@@ -154,14 +154,14 @@ fun AddEditBookmarkScreen(
 
                 autoTagError = null
 
-                // Only apply tags if auto-tagging is enabled in settings
-                if (autoTagEnabled) {
+                // Apply tags if we found any (respect toggle or manual trigger)
+                if (autoTagState.tags.isNotEmpty()) {
                     println("AddEditBookmarkScreen: Applying legacy tags: ${autoTagState.tags}")
                     autoTagState.tags.forEach { tag ->
                         if (!selectedTags.contains(tag)) selectedTags.add(tag)
                     }
                 } else {
-                    println("AddEditBookmarkScreen: Skipping legacy tags because autoTagEnabled is false")
+                    println("AddEditBookmarkScreen: No legacy tags found to apply")
                 }
 
                 // If AI isn't handling title/description, use legacy extraction results

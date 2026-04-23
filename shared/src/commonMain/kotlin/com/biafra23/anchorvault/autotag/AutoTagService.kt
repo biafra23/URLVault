@@ -38,7 +38,7 @@ class AutoTagService(private val httpClient: HttpClient) {
                 val cleaned = stripHtmlTags(it)
                 if (cleaned.isNotBlank()) {
                     textParts.add(cleaned)
-                    textParts.add(cleaned)
+                    textParts.add(cleaned) // Double weight for title
                     println("AutoTagService: Extracted title: $cleaned")
                     cleaned
                 } else null
@@ -54,49 +54,72 @@ class AutoTagService(private val httpClient: HttpClient) {
                 } else null
             }
 
+            // Also check Open Graph tags if different
+            extractMetaContent(trimmedHtml, "og:title")?.let { ogTitle ->
+                val cleaned = stripHtmlTags(ogTitle)
+                if (cleaned.isNotBlank() && cleaned != title) {
+                    textParts.add(cleaned)
+                    textParts.add(cleaned)
+                }
+            }
+            extractMetaContent(trimmedHtml, "og:description")?.let { ogDesc ->
+                val cleaned = stripHtmlTags(ogDesc)
+                if (cleaned.isNotBlank() && cleaned != description) {
+                    textParts.add(cleaned)
+                }
+            }
+
             // Extract <meta name="keywords" content="...">
             val keywordsTags = extractMetaContent(trimmedHtml, "keywords")?.let { keywords ->
-                // Keywords meta tag is already comma-separated — treat each as a potential tag
                 keywords.split(",").map { it.trim().lowercase() }
                     .filter { it.isNotBlank() && it.length in 2..30 }
                     .take(maxTags)
             }
 
-            if (keywordsTags != null && keywordsTags.isNotEmpty()) {
-                println("AutoTagService: Found keywords tags: $keywordsTags")
-                return@runCatching PageMetadata(title, description, keywordsTags)
-            }
-
             // Extract h1-h3 headings
             HEADING_REGEX.findAll(trimmedHtml).forEach { match ->
                 match.groupValues.getOrNull(2)?.let {
-                    textParts.add(stripHtmlTags(it))
+                    val cleaned = stripHtmlTags(it)
+                    if (cleaned.isNotBlank()) {
+                        textParts.add(cleaned)
+                    }
                 }
             }
 
             // Tokenize, filter, count frequency
             val wordCounts = mutableMapOf<String, Int>()
+            
+            // If we have explicit keywords, add them to counts with high weight
+            println("AutoTagService: keywordsTags found: $keywordsTags")
+            keywordsTags?.forEach { keyword ->
+                val clean = keyword.trim().lowercase()
+                if (clean.isNotBlank()) {
+                    wordCounts[clean] = (wordCounts[clean] ?: 0) + 5
+                }
+            }
+
             val combinedText = textParts.joinToString(" ")
-            println("AutoTagService: Combined text for tagging length: ${combinedText.length}")
+            println("AutoTagService: combinedText for analysis (length ${combinedText.length}): $combinedText")
             
             combinedText
                 .lowercase()
                 .split(WORD_SPLIT_REGEX)
-                .filter { word ->
-                    word.length in 3..25 &&
-                        word !in STOP_WORDS &&
-                        !word.all { it.isDigit() }
-                }
+                .filter { it.isNotBlank() }
                 .forEach { word ->
-                    wordCounts[word] = (wordCounts[word] ?: 0) + 1
+                    if (word.length in 3..25 && word !in STOP_WORDS && !word.all { it.isDigit() }) {
+                        wordCounts[word] = (wordCounts[word] ?: 0) + 1
+                    }
                 }
 
+            println("AutoTagService: wordCounts map: $wordCounts")
+
             val tags = wordCounts.entries
+                .filter { it.key.length >= 3 }
                 .sortedByDescending { it.value }
                 .take(maxTags)
                 .map { it.key }
             
-            println("AutoTagService: Generated tags: $tags")
+            println("AutoTagService: Final generated tags: $tags")
 
             PageMetadata(title, description, tags)
         }
