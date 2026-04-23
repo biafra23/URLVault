@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -362,10 +363,35 @@ fun AddEditBookmarkScreen(
             }
 
             // Tags section
-            Text(
-                text = "Tags",
-                style = MaterialTheme.typography.titleSmall
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Tags",
+                    style = MaterialTheme.typography.titleSmall
+                )
+
+                if (autoTagEnabled && !isEditMode && url.isNotBlank()) {
+                    OutlinedButton(
+                        onClick = {
+                            val targetUrl = normalizeUrlForAi(url)
+                            if (targetUrl != null) {
+                                triggerAiForUrl(targetUrl)
+                            }
+                        },
+                        enabled = autoTagState !is AutoTagState.Loading && aiTagState !is AIGenerationState.Loading,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text(
+                            text = if (aiCoreEnabled) "AI Auto-tag" else "Auto-tag",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+            }
 
             // Inline loading/error for tags generation
             if (aiTagState is AIGenerationState.Loading || autoTagState is AutoTagState.Loading) {
