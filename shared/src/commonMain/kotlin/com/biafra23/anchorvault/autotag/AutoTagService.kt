@@ -22,9 +22,11 @@ class AutoTagService(private val httpClient: HttpClient) {
 
     suspend fun fetchMetadata(url: String, maxTags: Int = 6): Result<PageMetadata> {
         return runCatching {
+            println("AutoTagService: Fetching metadata for $url")
             val html = httpClient.get(url) {
-                header("User-Agent", "AnchorVault/1.0")
+                header("User-Agent", "AnchorVault/1.0 (Bookmark Manager)")
             }.bodyAsText()
+            println("AutoTagService: Received ${html.length} bytes of HTML")
 
             // Limit processing to first 100KB to avoid memory issues on huge pages
             val trimmedHtml = if (html.length > 100_000) html.take(100_000) else html
@@ -32,24 +34,28 @@ class AutoTagService(private val httpClient: HttpClient) {
             val textParts = mutableListOf<String>()
 
             // Extract <title>
-            val title = TITLE_REGEX.find(trimmedHtml)?.groupValues?.getOrNull(1)?.let {
+            val title = extractTitle(trimmedHtml)?.let {
                 val cleaned = stripHtmlTags(it)
-                textParts.add(cleaned)
-                textParts.add(cleaned)
-                cleaned
+                if (cleaned.isNotBlank()) {
+                    textParts.add(cleaned)
+                    textParts.add(cleaned)
+                    println("AutoTagService: Extracted title: $cleaned")
+                    cleaned
+                } else null
             }
 
-            // Extract <meta name="description" content="..."> (handles both attribute orders)
-            val description = META_DESC_REGEX.find(trimmedHtml)?.let { match ->
-                val content = match.groupValues[1].ifEmpty { match.groupValues[2] }
-                if (content.isNotEmpty()) {
-                    textParts.add(stripHtmlTags(content))
-                    stripHtmlTags(content)
+            // Extract description
+            val description = extractMetaContent(trimmedHtml, "description")?.let {
+                val cleaned = stripHtmlTags(it)
+                if (cleaned.isNotBlank()) {
+                    textParts.add(cleaned)
+                    println("AutoTagService: Extracted description: $cleaned")
+                    cleaned
                 } else null
             }
 
             // Extract <meta name="keywords" content="...">
-            val keywordsTags = META_KEYWORDS_REGEX.find(trimmedHtml)?.groupValues?.getOrNull(1)?.let { keywords ->
+            val keywordsTags = extractMetaContent(trimmedHtml, "keywords")?.let { keywords ->
                 // Keywords meta tag is already comma-separated — treat each as a potential tag
                 keywords.split(",").map { it.trim().lowercase() }
                     .filter { it.isNotBlank() && it.length in 2..30 }
@@ -57,6 +63,7 @@ class AutoTagService(private val httpClient: HttpClient) {
             }
 
             if (keywordsTags != null && keywordsTags.isNotEmpty()) {
+                println("AutoTagService: Found keywords tags: $keywordsTags")
                 return@runCatching PageMetadata(title, description, keywordsTags)
             }
 
@@ -69,7 +76,10 @@ class AutoTagService(private val httpClient: HttpClient) {
 
             // Tokenize, filter, count frequency
             val wordCounts = mutableMapOf<String, Int>()
-            textParts.joinToString(" ")
+            val combinedText = textParts.joinToString(" ")
+            println("AutoTagService: Combined text for tagging length: ${combinedText.length}")
+            
+            combinedText
                 .lowercase()
                 .split(WORD_SPLIT_REGEX)
                 .filter { word ->
@@ -85,9 +95,31 @@ class AutoTagService(private val httpClient: HttpClient) {
                 .sortedByDescending { it.value }
                 .take(maxTags)
                 .map { it.key }
+            
+            println("AutoTagService: Generated tags: $tags")
 
             PageMetadata(title, description, tags)
         }
+    }
+
+    private fun extractTitle(html: String): String? {
+        val match = TITLE_REGEX.find(html)
+        return match?.groupValues?.getOrNull(1)?.trim()
+    }
+
+    private fun extractMetaContent(html: String, name: String): String? {
+        // More robust meta extraction that handles arbitrary attribute order and spacing
+        val metaRegex = Regex("<meta[^>]+>", RegexOption.IGNORE_CASE)
+        val nameRegex = Regex("""(?:name|property)\s*=\s*["'](?:$name|og:$name)["']""", RegexOption.IGNORE_CASE)
+        val contentRegex = Regex("""content\s*=\s*["']([^"']*)["']""", RegexOption.IGNORE_CASE)
+
+        metaRegex.findAll(html).forEach { metaMatch ->
+            val tag = metaMatch.value
+            if (nameRegex.containsMatchIn(tag)) {
+                contentRegex.find(tag)?.groupValues?.getOrNull(1)?.let { return it }
+            }
+        }
+        return null
     }
 
     suspend fun extractTags(url: String, maxTags: Int = 6): Result<List<String>> {
@@ -101,12 +133,6 @@ class AutoTagService(private val httpClient: HttpClient) {
     companion object {
         private val TITLE_REGEX =
             Regex("<title[^>]*>([\\s\\S]*?)</title>", RegexOption.IGNORE_CASE)
-        private val META_DESC_REGEX =
-            Regex("""<meta\s+(?:name=["']description["']\s+content=["']([^"']*)["']|content=["']([^"']*)["']\s+name=["']description["'])""",
-                RegexOption.IGNORE_CASE)
-        private val META_KEYWORDS_REGEX =
-            Regex("""<meta\s+name=["']keywords["']\s+content=["']([^"']*)["']""",
-                RegexOption.IGNORE_CASE)
         private val HEADING_REGEX =
             Regex("<h([1-3])[^>]*>([\\s\\S]*?)</h\\1>", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("<[^>]+>")
@@ -124,6 +150,7 @@ class AutoTagService(private val httpClient: HttpClient) {
 fun createAutoTagService(): AutoTagService {
     val client = HttpClient {
         install(HttpTimeout) { requestTimeoutMillis = 10_000 }
+        followRedirects = true
     }
     return AutoTagService(client)
 }
