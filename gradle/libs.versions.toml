@@ -5,7 +5,7 @@ compose-multiplatform = "1.8.2"
 coroutines = "1.9.0"
 room = "2.6.1"
 ksp = "2.1.0-1.0.29"
-sqlcipher = "4.5.4"
+sqlcipher = "4.14.1"
 sqlite = "2.4.0"
 lifecycle = "2.8.7"
 jetbrains-lifecycle = "2.9.6"
@@ -17,7 +17,7 @@ kotlinx-serialization = "1.7.3"
 kotlinx-datetime = "0.6.1"
 sqliteJdbc = "3.47.1.0"
 slf4j = "2.0.16"
-aicore = "0.0.1-exp02"
+mlkit-genai-prompt = "1.0.0-beta2"
 
 [libraries]
 # Coroutines
@@ -37,7 +37,7 @@ room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 
 # SQLCipher (Android encryption)
-sqlcipher-android = { module = "net.zetetic:android-database-sqlcipher", version.ref = "sqlcipher" }
+sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher" }
 sqlite-ktx = { module = "androidx.sqlite:sqlite-ktx", version.ref = "sqlite" }
 
 # Activity (Android)
@@ -69,8 +69,8 @@ ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negoti
 ktor-serialization-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-client-logging = { module = "io.ktor:ktor-client-logging", version.ref = "ktor" }
 
-# Google AICore (Gemini Nano on-device)
-google-aicore = { module = "com.google.ai.edge.aicore:aicore", version.ref = "aicore" }
+# ML Kit GenAI Prompt API (Gemini Nano on-device)
+mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "mlkit-genai-prompt" }
 
 # Desktop SQLite
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqliteJdbc" }

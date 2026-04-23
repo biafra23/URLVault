@@ -13,6 +13,7 @@ import org.koin.core.logger.Level
 class AnchorVaultApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        System.loadLibrary("sqlcipher")
         val isDebug = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
         startKoin {
             androidLogger(if (isDebug) Level.INFO else Level.ERROR)

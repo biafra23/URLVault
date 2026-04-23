@@ -58,8 +58,8 @@ val appModule = module {
     // Auto-tag service
     single<AutoTagService> { createAutoTagService() }
 
-    // AICore (Gemini Nano on-device AI)
-    single { AICoreService(androidContext()) }
+    // ML Kit GenAI Prompt API (Gemini Nano on-device)
+    single { AICoreService() }
 
     // ViewModel
     viewModel {

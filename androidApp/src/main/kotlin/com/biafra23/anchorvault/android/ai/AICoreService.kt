@@ -1,12 +1,12 @@
 package com.biafra23.anchorvault.android.ai
 
-import android.content.Context
 import android.util.Log
-import com.google.ai.edge.aicore.DownloadCallback
-import com.google.ai.edge.aicore.DownloadConfig
-import com.google.ai.edge.aicore.GenerativeAIException
-import com.google.ai.edge.aicore.GenerativeModel
-import com.google.ai.edge.aicore.generationConfig
+import com.google.mlkit.genai.common.DownloadStatus
+import com.google.mlkit.genai.common.FeatureStatus
+import com.google.mlkit.genai.prompt.Generation
+import com.google.mlkit.genai.prompt.GenerativeModel
+import com.google.mlkit.genai.prompt.TextPart
+import com.google.mlkit.genai.prompt.generateContentRequest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,9 +19,6 @@ private const val MAX_PAGE_CONTENT_LENGTH = 800
 /** Maximum allowed length for a generated description. */
 private const val MAX_DESCRIPTION_LENGTH = 300
 
-/**
- * Status of the on-device Gemini Nano model.
- */
 sealed class AICoreStatus {
     data object Unknown : AICoreStatus()
     data object Unavailable : AICoreStatus()
@@ -31,11 +28,11 @@ sealed class AICoreStatus {
 }
 
 /**
- * Wraps Android AICore (Gemini Nano) for on-device tag and description generation.
- * Fetches web page content to provide context for better results.
+ * Wraps the ML Kit GenAI Prompt API (Gemini Nano) for on-device tag and
+ * description generation. Fetches web page content to provide context.
  * All inference runs locally — no data leaves the device (except the HTTP fetch).
  */
-class AICoreService(private val context: Context) {
+class AICoreService {
 
     private var generativeModel: GenerativeModel? = null
     private val contentExtractor = WebPageContentExtractor()
@@ -43,76 +40,65 @@ class AICoreService(private val context: Context) {
     private val _status = MutableStateFlow<AICoreStatus>(AICoreStatus.Unknown)
     val status: StateFlow<AICoreStatus> = _status.asStateFlow()
 
-    private fun getOrCreateModel(): GenerativeModel {
-        return generativeModel ?: GenerativeModel(
-            generationConfig = generationConfig {
-                context = this@AICoreService.context
-                temperature = 0.0f
-                topK = 1
-                maxOutputTokens = 256
-            },
-            downloadConfig = DownloadConfig(
-                downloadCallback = object : DownloadCallback {
-                    override fun onDownloadStarted(bytesToDownload: Long) {
-                        Log.i(TAG, "Model download started: $bytesToDownload bytes")
-                        _status.value = AICoreStatus.Downloading
-                    }
-
-                    override fun onDownloadProgress(totalBytesDownloaded: Long) {
-                        Log.d(TAG, "Model download progress: $totalBytesDownloaded bytes")
-                        _status.value = AICoreStatus.Downloading
-                    }
-
-                    override fun onDownloadCompleted() {
-                        Log.i(TAG, "Model download completed")
-                        _status.value = AICoreStatus.Available
-                    }
-
-                    override fun onDownloadPending() {
-                        Log.i(TAG, "Model download pending")
-                        _status.value = AICoreStatus.Downloading
-                    }
-
-                    override fun onDownloadFailed(failureStatus: String, e: GenerativeAIException) {
-                        Log.e(TAG, "Model download failed: $failureStatus", e)
-                        _status.value = AICoreStatus.Failed("Download failed: $failureStatus")
-                    }
-
-                    override fun onDownloadDidNotStart(e: GenerativeAIException) {
-                        Log.w(TAG, "Model download did not start: ${e.message}", e)
-                        _status.value = AICoreStatus.Failed(e.message ?: "Download did not start")
-                    }
-                }
-            )
-        ).also { generativeModel = it }
-    }
+    private fun getOrCreateModel(): GenerativeModel =
+        generativeModel ?: Generation.getClient().also { generativeModel = it }
 
     /**
-     * Initializes the model and determines availability via download callbacks.
-     * Call once at startup — the [status] StateFlow will update as the model
-     * becomes available or reports errors.
+     * Initializes the model. Suspends until the model is ready or a terminal
+     * state is reached — if the model needs downloading, this collects the
+     * download progress Flow and updates [status] as it advances.
      */
     suspend fun initialize() {
         try {
-            Log.d(TAG, "Initializing AICore / Gemini Nano...")
+            Log.d(TAG, "Initializing ML Kit GenAI Prompt API (Gemini Nano)...")
             val model = getOrCreateModel()
-            Log.d(TAG, "GenerativeModel created, preparing inference engine...")
-            model.prepareInferenceEngine()
-            Log.i(TAG, "AICore inference engine ready")
-            _status.value = AICoreStatus.Available
+            when (model.checkStatus()) {
+                FeatureStatus.UNAVAILABLE -> {
+                    Log.w(TAG, "Gemini Nano unavailable on this device")
+                    _status.value = AICoreStatus.Unavailable
+                }
+                FeatureStatus.DOWNLOADABLE, FeatureStatus.DOWNLOADING -> {
+                    collectDownload(model)
+                }
+                FeatureStatus.AVAILABLE -> {
+                    Log.d(TAG, "Model available, warming up inference engine...")
+                    model.warmup()
+                    _status.value = AICoreStatus.Available
+                }
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "AICore initialization error: ${e.javaClass.simpleName}: ${e.message}", e)
-            // Only override status if download callbacks haven't already set it to Downloading
-            if (_status.value !is AICoreStatus.Downloading) {
-                _status.value = AICoreStatus.Unavailable
+            Log.w(TAG, "ML Kit GenAI initialization error: ${e.javaClass.simpleName}: ${e.message}", e)
+            _status.value = AICoreStatus.Failed(e.message ?: "Initialization failed")
+        }
+    }
+
+    private suspend fun collectDownload(model: GenerativeModel) {
+        _status.value = AICoreStatus.Downloading
+        model.download().collect { downloadStatus ->
+            when (downloadStatus) {
+                is DownloadStatus.DownloadStarted -> {
+                    Log.i(TAG, "Model download started")
+                    _status.value = AICoreStatus.Downloading
+                }
+                is DownloadStatus.DownloadProgress -> {
+                    Log.d(TAG, "Model download progress: ${downloadStatus.totalBytesDownloaded} bytes")
+                    _status.value = AICoreStatus.Downloading
+                }
+                DownloadStatus.DownloadCompleted -> {
+                    Log.i(TAG, "Model download completed, warming up...")
+                    model.warmup()
+                    _status.value = AICoreStatus.Available
+                }
+                is DownloadStatus.DownloadFailed -> {
+                    Log.e(TAG, "Model download failed", downloadStatus.e)
+                    _status.value = AICoreStatus.Failed(
+                        "Download failed: ${downloadStatus.e.message ?: "unknown"}"
+                    )
+                }
             }
         }
     }
 
-    /**
-     * Fetches page content for the given URL. Returns null on failure
-     * (AI generation will still work, just with less context).
-     */
     private suspend fun fetchPageContent(url: String): PageContent? {
         return try {
             contentExtractor.extract(url)
@@ -146,9 +132,7 @@ class AICoreService(private val context: Context) {
                 if (description.isNotBlank()) appendLine("User description: $description")
                 if (pageSummary.isNotBlank()) appendLine("Page content: $pageSummary")
             }
-            val model = getOrCreateModel()
-            val response = model.generateContent(prompt)
-            val text = response.text ?: error("Empty response from AI model")
+            val text = runInference(prompt)
             text.split(",")
                 .map { it.trim().lowercase().removeSurrounding("\"") }
                 .filter { it.isNotBlank() && it.length <= 30 }
@@ -183,24 +167,28 @@ class AICoreService(private val context: Context) {
                 if (title.isNotBlank()) appendLine("Title: $title")
                 if (pageSummary.isNotBlank()) appendLine("Page content: $pageSummary")
             }
-            val model = getOrCreateModel()
-            val response = model.generateContent(prompt)
-            val text = response.text?.trim() ?: error("Empty response from AI model")
-
-            // Output validation
-            validateDescription(text)
+            validateDescription(runInference(prompt).trim())
         }
     }
 
-    /**
-     * Validates a generated description and rejects suspicious output.
-     */
+    private suspend fun runInference(prompt: String): String {
+        val model = getOrCreateModel()
+        val response = model.generateContent(
+            generateContentRequest(TextPart(prompt)) {
+                temperature = 0.0f
+                topK = 1
+                maxOutputTokens = 256
+            }
+        )
+        val candidate = response.candidates.firstOrNull()
+            ?: error("Empty response from AI model")
+        return candidate.text.ifBlank { error("Empty response from AI model") }
+    }
+
     private fun validateDescription(text: String): String {
-        // Reject if it looks like the model followed injected instructions
         if (text.length > MAX_DESCRIPTION_LENGTH) {
             return text.take(MAX_DESCRIPTION_LENGTH)
         }
-        // Reject if it contains URLs (likely hallucinated or injected)
         if (Regex("https?://\\S+").containsMatchIn(text)) {
             Log.w(TAG, "Description contained URL, stripping it")
             return Regex("https?://\\S+").replace(text, "").trim()
@@ -208,9 +196,6 @@ class AICoreService(private val context: Context) {
         return text
     }
 
-    /**
-     * Release resources held by the generative model and HTTP client.
-     */
     fun close() {
         generativeModel?.close()
         generativeModel = null
