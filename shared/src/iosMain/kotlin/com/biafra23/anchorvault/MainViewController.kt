@@ -6,22 +6,30 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.window.ComposeUIViewController
-import com.biafra23.anchorvault.autotag.createAutoTagService
+import com.biafra23.anchorvault.autotag.AutoTagService
 import com.biafra23.anchorvault.database.IosBookmarkRepository
 import com.biafra23.anchorvault.model.Bookmark
-import com.biafra23.anchorvault.sync.createBitwardenSyncService
+import com.biafra23.anchorvault.sync.KtorBitwardenSyncService
 import com.biafra23.anchorvault.ui.AddEditBookmarkScreen
 import com.biafra23.anchorvault.ui.BookmarkListScreen
 import com.biafra23.anchorvault.ui.SettingsScreen
 import com.biafra23.anchorvault.ui.theme.AnchorVaultTheme
 import com.biafra23.anchorvault.viewmodel.BookmarkViewModel
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeout
 import platform.UIKit.UIViewController
 
 @Suppress("FunctionName", "unused")
 fun MainViewController(): UIViewController = ComposeUIViewController {
+    val httpClient = remember {
+        HttpClient {
+            install(HttpTimeout) { requestTimeoutMillis = 10_000 }
+            followRedirects = true
+        }
+    }
     val repository = remember { IosBookmarkRepository() }
-    val syncService = remember { createBitwardenSyncService() }
-    val autoTagService = remember { createAutoTagService() }
+    val syncService = remember { KtorBitwardenSyncService(httpClient) }
+    val autoTagService = remember { AutoTagService(httpClient) }
     val viewModel = remember { BookmarkViewModel(repository, syncService, autoTagService) }
 
     AnchorVaultTheme {

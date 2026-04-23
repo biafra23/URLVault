@@ -45,15 +45,7 @@ data class PageContent(
  * Fetches a web page and extracts meta tags and visible text content.
  * All content is sanitized to reduce prompt injection risk.
  */
-class WebPageContentExtractor {
-
-    private val client = HttpClient(Android) {
-        engine {
-            connectTimeout = 10_000
-            socketTimeout = 10_000
-        }
-        followRedirects = true
-    }
+class WebPageContentExtractor(private val client: HttpClient) {
 
     /**
      * Fetches the URL and extracts structured content.
@@ -180,6 +172,6 @@ class WebPageContentExtractor {
     }
 
     fun close() {
-        client.close()
+        // client is shared and managed externally
     }
 }

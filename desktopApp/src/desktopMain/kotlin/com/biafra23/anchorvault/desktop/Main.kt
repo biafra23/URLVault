@@ -17,23 +17,31 @@ import com.biafra23.anchorvault.ui.BookmarkListScreen
 import com.biafra23.anchorvault.ui.SettingsScreen
 import com.biafra23.anchorvault.ui.theme.AnchorVaultTheme
 import com.biafra23.anchorvault.viewmodel.BookmarkViewModel
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeout
 import kotlinx.coroutines.runBlocking
 
 /**
  * Desktop application entry point.
  */
 fun main() = application {
+    val httpClient = remember {
+        HttpClient {
+            install(HttpTimeout) { requestTimeoutMillis = 10_000 }
+            followRedirects = true
+        }
+    }
     val prefs = remember { DesktopBitwardenPreferences() }
     val repository = remember { DesktopBookmarkRepository() }
     val syncService = remember {
-        createBitwardenSyncService().also { service ->
+        com.biafra23.anchorvault.sync.KtorBitwardenSyncService(httpClient).also { service ->
             val saved = prefs.loadCredentials()
             if (saved != null) {
                 runBlocking { service.configure(saved) }
             }
         }
     }
-    val autoTagService = remember { createAutoTagService() }
+    val autoTagService = remember { com.biafra23.anchorvault.autotag.AutoTagService(httpClient) }
     val viewModel = remember { BookmarkViewModel(repository, syncService, autoTagService) }
 
     Window(
@@ -41,6 +49,7 @@ fun main() = application {
             repository.close()
             syncService.close()
             autoTagService.close()
+            httpClient.close()
             exitApplication()
         },
         title = "AnchorVault",

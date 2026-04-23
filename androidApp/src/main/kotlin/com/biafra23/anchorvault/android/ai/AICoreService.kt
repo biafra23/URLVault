@@ -1,6 +1,7 @@
 package com.biafra23.anchorvault.android.ai
 
 import android.util.Log
+import io.ktor.client.HttpClient
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
@@ -32,10 +33,10 @@ sealed class AICoreStatus {
  * description generation. Fetches web page content to provide context.
  * All inference runs locally — no data leaves the device (except the HTTP fetch).
  */
-class AICoreService {
+class AICoreService(httpClient: HttpClient) {
 
     private var generativeModel: GenerativeModel? = null
-    private val contentExtractor = WebPageContentExtractor()
+    private val contentExtractor = WebPageContentExtractor(httpClient)
 
     private val _status = MutableStateFlow<AICoreStatus>(AICoreStatus.Unknown)
     val status: StateFlow<AICoreStatus> = _status.asStateFlow()
