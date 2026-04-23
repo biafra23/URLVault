@@ -55,6 +55,7 @@ class WebPageContentExtractor {
      */
     suspend fun extract(url: String): PageContent? {
         return try {
+            Log.d(TAG, "Fetching content from: $url")
             val response = client.get(url) {
                 header("User-Agent", "AnchorVault/1.0 (Bookmark Manager)")
                 header("Accept", "text/html")
@@ -66,6 +67,7 @@ class WebPageContentExtractor {
             }
 
             val html = response.bodyAsText()
+            Log.v(TAG, "HTML content length: ${html.length}")
             parseHtml(html)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to fetch $url: ${e.message}")

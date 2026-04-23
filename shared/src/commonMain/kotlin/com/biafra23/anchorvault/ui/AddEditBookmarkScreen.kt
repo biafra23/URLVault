@@ -105,6 +105,8 @@ fun AddEditBookmarkScreen(
 
     // Helper to trigger AI/autotag for a given URL
     fun triggerAiForUrl(targetUrl: String) {
+        // println is not always visible in logcat for commonMain, use better way if possible
+        // but for now let's use it and also check other things.
         if (aiTriggeredForUrl == targetUrl) return
         aiTriggeredForUrl = targetUrl
 
@@ -378,6 +380,10 @@ fun AddEditBookmarkScreen(
                         onClick = {
                             val targetUrl = normalizeUrlForAi(url)
                             if (targetUrl != null) {
+                                // Reset guard if user manually clicks
+                                if (aiTriggeredForUrl == targetUrl) {
+                                    aiTriggeredForUrl = null
+                                }
                                 triggerAiForUrl(targetUrl)
                             }
                         },
