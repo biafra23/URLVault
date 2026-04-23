@@ -177,6 +177,35 @@ class AICoreService {
         }
     }
 
+    /**
+     * Generates a title for a bookmark based on the page content if the provided title is empty.
+     * If the page has a native title, returns that; otherwise, uses AI to generate one.
+     */
+    suspend fun generateTitle(url: String): Result<String> {
+        return runCatching {
+            val pageContent = fetchPageContent(url) ?: error("Could not fetch page content")
+            val nativeTitle = pageContent.bestTitle()
+
+            if (!nativeTitle.isNullOrBlank()) {
+                return@runCatching nativeTitle
+            }
+
+            // Fallback to AI generation
+            val pageSummary = pageContent.bestSummary(MAX_PAGE_CONTENT_LENGTH)
+            val prompt = buildString {
+                appendLine("Generate a short, descriptive title for this bookmark (max 6 words).")
+                appendLine("Return ONLY the title, nothing else.")
+                appendLine()
+                appendLine("Context data:")
+                appendLine("URL: $url")
+                if (pageSummary.isNotBlank()) {
+                    appendLine("Page summary: $pageSummary")
+                }
+            }
+            runInference(prompt).trim().removeSurrounding("\"")
+        }
+    }
+
     private suspend fun runInference(prompt: String): String {
         val model = getOrCreateModel()
         val response = model.generateContent(

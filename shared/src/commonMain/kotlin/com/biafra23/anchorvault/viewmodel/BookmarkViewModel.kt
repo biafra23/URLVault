@@ -61,6 +61,7 @@ sealed class AIGenerationState {
     data object Loading : AIGenerationState()
     data class TagsSuccess(val tags: List<String>) : AIGenerationState()
     data class DescriptionSuccess(val description: String) : AIGenerationState()
+    data class TitleSuccess(val title: String) : AIGenerationState()
     data class Error(val message: String) : AIGenerationState()
 }
 
@@ -76,7 +77,8 @@ class BookmarkViewModel(
     private val syncService: BitwardenSyncService,
     private val autoTagService: AutoTagService? = null,
     private val aiTagGenerator: (suspend (String, String, String) -> Result<List<String>>)? = null,
-    private val aiDescriptionGenerator: (suspend (String, String) -> Result<String>)? = null
+    private val aiDescriptionGenerator: (suspend (String, String) -> Result<String>)? = null,
+    private val aiTitleGenerator: (suspend (String) -> Result<String>)? = null
 ) : ViewModel() {
 
     private val _selectedTag = MutableStateFlow<String?>(null)
@@ -86,10 +88,12 @@ class BookmarkViewModel(
     private val _autoTagState = MutableStateFlow<AutoTagState>(AutoTagState.Idle)
     private val _aiTagState = MutableStateFlow<AIGenerationState>(AIGenerationState.Idle)
     private val _aiDescriptionState = MutableStateFlow<AIGenerationState>(AIGenerationState.Idle)
+    private val _aiTitleState = MutableStateFlow<AIGenerationState>(AIGenerationState.Idle)
 
     val autoTagState: StateFlow<AutoTagState> = _autoTagState.asStateFlow()
     val aiTagState: StateFlow<AIGenerationState> = _aiTagState.asStateFlow()
     val aiDescriptionState: StateFlow<AIGenerationState> = _aiDescriptionState.asStateFlow()
+    val aiTitleState: StateFlow<AIGenerationState> = _aiTitleState.asStateFlow()
 
     /**
      * Combines tag and search query into a single flow so that [flatMapLatest] below
@@ -251,12 +255,31 @@ class BookmarkViewModel(
         }
     }
 
+    fun generateAiTitle(url: String) {
+        val generator = aiTitleGenerator ?: return
+        viewModelScope.launch {
+            _aiTitleState.value = AIGenerationState.Loading
+            generator(url).fold(
+                onSuccess = { title ->
+                    _aiTitleState.value = AIGenerationState.TitleSuccess(title)
+                },
+                onFailure = { e ->
+                    _aiTitleState.value = AIGenerationState.Error(e.message ?: "AI title generation failed")
+                }
+            )
+        }
+    }
+
     fun clearAiTagState() {
         _aiTagState.value = AIGenerationState.Idle
     }
 
     fun clearAiDescriptionState() {
         _aiDescriptionState.value = AIGenerationState.Idle
+    }
+
+    fun clearAiTitleState() {
+        _aiTitleState.value = AIGenerationState.Idle
     }
 
     fun clearError() {

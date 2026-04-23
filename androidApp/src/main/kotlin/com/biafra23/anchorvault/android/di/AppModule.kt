@@ -69,7 +69,8 @@ val appModule = module {
             syncService = get(),
             autoTagService = get(),
             aiTagGenerator = { url, title, desc -> aiCoreService.generateTags(url, title, desc) },
-            aiDescriptionGenerator = { url, title -> aiCoreService.generateDescription(url, title) }
+            aiDescriptionGenerator = { url, title -> aiCoreService.generateDescription(url, title) },
+            aiTitleGenerator = { url -> aiCoreService.generateTitle(url) }
         )
     }
 }

@@ -68,10 +68,13 @@ fun AddEditBookmarkScreen(
     aiCoreEnabled: Boolean = false,
     aiTagState: AIGenerationState = AIGenerationState.Idle,
     aiDescriptionState: AIGenerationState = AIGenerationState.Idle,
+    aiTitleState: AIGenerationState = AIGenerationState.Idle,
     onAiGenerateTags: ((String, String, String) -> Unit)? = null,
     onAiGenerateDescription: ((String, String) -> Unit)? = null,
+    onAiGenerateTitle: ((String) -> Unit)? = null,
     onAiTagConsumed: () -> Unit = {},
     onAiDescriptionConsumed: () -> Unit = {},
+    onAiTitleConsumed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isEditMode = existingBookmark != null
@@ -88,6 +91,7 @@ fun AddEditBookmarkScreen(
     var autoTagError by remember { mutableStateOf<String?>(null) }
     var aiTagError by remember { mutableStateOf<String?>(null) }
     var aiDescriptionError by remember { mutableStateOf<String?>(null) }
+    var aiTitleError by remember { mutableStateOf<String?>(null) }
 
     // Track which URL we've already triggered AI for, to prevent re-triggering
     var aiTriggeredForUrl by remember { mutableStateOf<String?>(null) }
@@ -109,6 +113,12 @@ fun AddEditBookmarkScreen(
         // but for now let's use it and also check other things.
         if (aiTriggeredForUrl == targetUrl) return
         aiTriggeredForUrl = targetUrl
+
+        // Trigger AI title generation if title is empty and AI is enabled
+        if (aiCoreEnabled && onAiGenerateTitle != null && title.isBlank()) {
+            aiTitleError = null
+            onAiGenerateTitle(targetUrl)
+        }
 
         if (aiCoreEnabled && onAiGenerateDescription != null) {
             aiDescriptionError = null
@@ -174,6 +184,25 @@ fun AddEditBookmarkScreen(
             is AIGenerationState.Error -> {
                 aiDescriptionError = aiDescriptionState.message
                 onAiDescriptionConsumed()
+            }
+            else -> {}
+        }
+    }
+
+    // Apply AI title results when they arrive
+    LaunchedEffect(aiTitleState) {
+        when (aiTitleState) {
+            is AIGenerationState.TitleSuccess -> {
+                aiTitleError = null
+                // Only overwrite if current title is still empty
+                if (title.isBlank()) {
+                    title = aiTitleState.title
+                }
+                onAiTitleConsumed()
+            }
+            is AIGenerationState.Error -> {
+                aiTitleError = aiTitleState.message
+                onAiTitleConsumed()
             }
             else -> {}
         }
@@ -314,6 +343,29 @@ fun AddEditBookmarkScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+
+            // Inline loading/error for AI title
+            if (aiTitleState is AIGenerationState.Loading) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Extracting title...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            aiTitleError?.let { errorMessage ->
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
 
             // Description field
             OutlinedTextField(

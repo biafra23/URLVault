@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
                         val autoTagState by bookmarkViewModel.autoTagState.collectAsState()
                         val aiTagState by bookmarkViewModel.aiTagState.collectAsState()
                         val aiDescriptionState by bookmarkViewModel.aiDescriptionState.collectAsState()
+                        val aiTitleState by bookmarkViewModel.aiTitleState.collectAsState()
                         AddEditBookmarkScreen(
                             existingBookmark = screen.existing,
                             prefilledUrl = screen.prefilledUrl,
@@ -87,10 +88,13 @@ class MainActivity : ComponentActivity() {
                             aiCoreEnabled = aiCoreEnabled && aiCoreStatus is AICoreStatus.Available,
                             aiTagState = aiTagState,
                             aiDescriptionState = aiDescriptionState,
+                            aiTitleState = aiTitleState,
                             onAiGenerateTags = { url, title, desc -> bookmarkViewModel.generateAiTags(url, title, desc) },
                             onAiGenerateDescription = { url, title -> bookmarkViewModel.generateAiDescription(url, title) },
+                            onAiGenerateTitle = { url -> bookmarkViewModel.generateAiTitle(url) },
                             onAiTagConsumed = { bookmarkViewModel.clearAiTagState() },
                             onAiDescriptionConsumed = { bookmarkViewModel.clearAiDescriptionState() },
+                            onAiTitleConsumed = { bookmarkViewModel.clearAiTitleState() },
                             onSave = { bookmark ->
                                 if (screen.existing != null) {
                                     bookmarkViewModel.updateBookmark(bookmark)

@@ -14,11 +14,17 @@ private const val TAG = "WebPageContentExtractor"
  * Extracted content from a web page, sanitized for safe use in AI prompts.
  */
 data class PageContent(
+    val title: String?,
     val metaDescription: String?,
     val ogDescription: String?,
     val ogTitle: String?,
     val visibleText: String
 ) {
+    /**
+     * Returns the best available title, preferring OG title over HTML title.
+     */
+    fun bestTitle(): String? = ogTitle ?: title
+
     /**
      * Returns the best available description, preferring structured meta tags
      * over free-form page text. Truncated to [maxLength] characters.
@@ -79,17 +85,27 @@ class WebPageContentExtractor {
      * Parses HTML and extracts meta tags and visible text.
      */
     internal fun parseHtml(html: String): PageContent {
+        val title = extractTitle(html)
         val metaDescription = extractMetaContent(html, "name", "description")
         val ogDescription = extractMetaContent(html, "property", "og:description")
         val ogTitle = extractMetaContent(html, "property", "og:title")
         val visibleText = extractVisibleText(html)
 
         return PageContent(
+            title = sanitize(title),
             metaDescription = sanitize(metaDescription),
             ogDescription = sanitize(ogDescription),
             ogTitle = sanitize(ogTitle),
             visibleText = sanitize(visibleText) ?: ""
         )
+    }
+
+    /**
+     * Extracts the content of the <title> tag.
+     */
+    private fun extractTitle(html: String): String? {
+        val match = Regex("<title[^>]*>([\\s\\S]*?)</title>", RegexOption.IGNORE_CASE).find(html)
+        return match?.groupValues?.getOrNull(1)?.trim()
     }
 
     /**
