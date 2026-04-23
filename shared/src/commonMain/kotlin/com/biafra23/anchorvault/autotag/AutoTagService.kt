@@ -71,9 +71,14 @@ class AutoTagService(private val httpClient: HttpClient) {
 
             // Extract <meta name="keywords" content="...">
             val keywordsTags = extractMetaContent(trimmedHtml, "keywords")?.let { keywords ->
-                keywords.split(",").map { it.trim().lowercase() }
-                    .filter { it.isNotBlank() && it.length in 2..30 }
-                    .take(maxTags)
+                keywords.split(Regex("[,;]+")).map { 
+                    it.trim()
+                        .lowercase()
+                        .replace(Regex("[^a-z0-9\\s-]"), "")
+                        .trim()
+                }
+                .filter { it.isNotBlank() && it.length in 2..30 }
+                .take(maxTags)
             }
 
             // Extract h1-h3 headings

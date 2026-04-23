@@ -140,9 +140,17 @@ class AICoreService {
             Log.v(TAG, "AI Prompt prepared for tag generation (titleIncluded=${title.isNotBlank()}, descriptionIncluded=${description.isNotBlank()}, pageSummaryIncluded=${pageSummary.isNotBlank()}, length=${prompt.length})")
             val text = runInference(prompt)
             Log.d(TAG, "AI Response: $text")
-            text.split(",")
-                .map { it.trim().lowercase().removeSurrounding("\"") }
-                .filter { it.isNotBlank() && it.length <= 30 }
+            
+            // Aggressively clean the AI response: split by comma/newline/semicolon,
+            // then strip all non-alphanumeric (allowing hyphens and internal spaces)
+            text.split(Regex("[,\\n;]+"))
+                .map { 
+                    it.trim()
+                        .lowercase()
+                        .replace(Regex("[^a-z0-9\\s-]"), "")
+                        .trim()
+                }
+                .filter { it.isNotBlank() && it.length in 2..30 }
                 .distinct()
                 .take(6)
                 .ifEmpty { error("AI model returned no usable tags") }
