@@ -24,7 +24,15 @@ class IosBookmarkRepository : BookmarkRepository {
 
     override fun getAllTags(): Flow<List<String>> =
         _bookmarks.map { bookmarks ->
-            bookmarks.flatMap { it.tags }.distinct().sorted()
+            bookmarks.flatMap { it.tags }
+                .map { tag ->
+                    tag.trim()
+                        .replace(Regex("[\\\\\\[\\]\\\"']"), "")
+                        .trim()
+                }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
         }
 
     override suspend fun getBookmarkById(id: String): Bookmark? =

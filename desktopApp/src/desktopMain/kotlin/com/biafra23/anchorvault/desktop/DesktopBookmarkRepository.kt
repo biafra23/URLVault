@@ -88,6 +88,11 @@ class DesktopBookmarkRepository : BookmarkRepository, Closeable {
     override fun getAllTags(): Flow<List<String>> =
         _bookmarksFlow.map { bookmarks ->
             bookmarks.flatMap { it.tags }
+                .map { tag ->
+                    tag.trim()
+                        .replace(Regex("[\\\\\\[\\]\\\"']"), "")
+                        .trim()
+                }
                 .filter { it.isNotBlank() }
                 .distinct()
                 .sorted()
