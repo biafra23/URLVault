@@ -133,10 +133,25 @@ fun AddEditBookmarkScreen(
     LaunchedEffect(autoTagState) {
         when (autoTagState) {
             is AutoTagState.Success -> {
+                // Ensure results match current URL to avoid race conditions
+                val currentTarget = normalizeUrlForAi(url)
+                if (currentTarget != autoTagState.sourceUrl) return@LaunchedEffect
+
                 autoTagError = null
                 autoTagState.tags.forEach { tag ->
                     if (!selectedTags.contains(tag)) selectedTags.add(tag)
                 }
+
+                // If AI isn't handling title/description, use legacy extraction results
+                if (!aiCoreEnabled) {
+                    if (title.isBlank() && !autoTagState.title.isNullOrBlank()) {
+                        title = autoTagState.title
+                    }
+                    if (description.isBlank() && !autoTagState.description.isNullOrBlank()) {
+                        description = autoTagState.description
+                    }
+                }
+
                 onAutoTagConsumed()
             }
             is AutoTagState.Error -> {

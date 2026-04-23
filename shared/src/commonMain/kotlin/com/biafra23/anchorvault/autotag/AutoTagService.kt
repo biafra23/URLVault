@@ -14,7 +14,13 @@ import io.ktor.client.statement.bodyAsText
  */
 class AutoTagService(private val httpClient: HttpClient) {
 
-    suspend fun extractTags(url: String, maxTags: Int = 6): Result<List<String>> {
+    data class PageMetadata(
+        val title: String?,
+        val description: String?,
+        val tags: List<String>
+    )
+
+    suspend fun fetchMetadata(url: String, maxTags: Int = 6): Result<PageMetadata> {
         return runCatching {
             val html = httpClient.get(url) {
                 header("User-Agent", "AnchorVault/1.0")
@@ -26,26 +32,32 @@ class AutoTagService(private val httpClient: HttpClient) {
             val textParts = mutableListOf<String>()
 
             // Extract <title>
-            TITLE_REGEX.find(trimmedHtml)?.groupValues?.getOrNull(1)?.let {
-                // Weight title words more by adding them twice
+            val title = TITLE_REGEX.find(trimmedHtml)?.groupValues?.getOrNull(1)?.let {
                 val cleaned = stripHtmlTags(it)
                 textParts.add(cleaned)
                 textParts.add(cleaned)
+                cleaned
             }
 
             // Extract <meta name="description" content="..."> (handles both attribute orders)
-            META_DESC_REGEX.find(trimmedHtml)?.let { match ->
+            val description = META_DESC_REGEX.find(trimmedHtml)?.let { match ->
                 val content = match.groupValues[1].ifEmpty { match.groupValues[2] }
-                if (content.isNotEmpty()) textParts.add(stripHtmlTags(content))
+                if (content.isNotEmpty()) {
+                    textParts.add(stripHtmlTags(content))
+                    stripHtmlTags(content)
+                } else null
             }
 
             // Extract <meta name="keywords" content="...">
-            META_KEYWORDS_REGEX.find(trimmedHtml)?.groupValues?.getOrNull(1)?.let { keywords ->
+            val keywordsTags = META_KEYWORDS_REGEX.find(trimmedHtml)?.groupValues?.getOrNull(1)?.let { keywords ->
                 // Keywords meta tag is already comma-separated — treat each as a potential tag
                 keywords.split(",").map { it.trim().lowercase() }
                     .filter { it.isNotBlank() && it.length in 2..30 }
                     .take(maxTags)
-                    .let { if (it.isNotEmpty()) return@runCatching it }
+            }
+
+            if (keywordsTags != null && keywordsTags.isNotEmpty()) {
+                return@runCatching PageMetadata(title, description, keywordsTags)
             }
 
             // Extract h1-h3 headings
@@ -69,11 +81,17 @@ class AutoTagService(private val httpClient: HttpClient) {
                     wordCounts[word] = (wordCounts[word] ?: 0) + 1
                 }
 
-            wordCounts.entries
+            val tags = wordCounts.entries
                 .sortedByDescending { it.value }
                 .take(maxTags)
                 .map { it.key }
+
+            PageMetadata(title, description, tags)
         }
+    }
+
+    suspend fun extractTags(url: String, maxTags: Int = 6): Result<List<String>> {
+        return fetchMetadata(url, maxTags).map { it.tags }
     }
 
     fun close() {

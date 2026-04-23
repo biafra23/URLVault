@@ -49,7 +49,12 @@ sealed class SyncStatus {
 sealed class AutoTagState {
     data object Idle : AutoTagState()
     data object Loading : AutoTagState()
-    data class Success(val tags: List<String>) : AutoTagState()
+    data class Success(
+        val tags: List<String>,
+        val title: String? = null,
+        val description: String? = null,
+        val sourceUrl: String? = null
+    ) : AutoTagState()
     data class Error(val message: String) : AutoTagState()
 }
 
@@ -202,13 +207,14 @@ class BookmarkViewModel(
         val service = autoTagService ?: return
         viewModelScope.launch {
             _autoTagState.value = AutoTagState.Loading
-            service.extractTags(url).fold(
-                onSuccess = { tags ->
-                    _autoTagState.value = if (tags.isEmpty()) {
-                        AutoTagState.Error("No tags could be extracted from this URL")
-                    } else {
-                        AutoTagState.Success(tags)
-                    }
+            service.fetchMetadata(url).fold(
+                onSuccess = { metadata ->
+                    _autoTagState.value = AutoTagState.Success(
+                        tags = metadata.tags,
+                        title = metadata.title,
+                        description = metadata.description,
+                        sourceUrl = url
+                    )
                 },
                 onFailure = { e ->
                     _autoTagState.value = AutoTagState.Error(e.message ?: "Failed to fetch tags")
