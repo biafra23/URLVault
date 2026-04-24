@@ -1,5 +1,7 @@
 package com.biafra23.anchorvault.autotag
 
+import com.biafra23.anchorvault.BuildConfig
+import com.biafra23.anchorvault.Logger
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
@@ -14,6 +16,8 @@ import io.ktor.client.statement.bodyAsText
  */
 class AutoTagService(private val httpClient: HttpClient) {
 
+    private val TAG = "AutoTagService"
+
     data class PageMetadata(
         val title: String?,
         val description: String?,
@@ -22,11 +26,11 @@ class AutoTagService(private val httpClient: HttpClient) {
 
     suspend fun fetchMetadata(url: String, maxTags: Int = 6): Result<PageMetadata> {
         return runCatching {
-            println("AutoTagService: Fetching metadata for $url")
+            Logger.d(TAG, "Fetching metadata for $url")
             val html = httpClient.get(url) {
                 header("User-Agent", "AnchorVault/1.0 (Bookmark Manager)")
             }.bodyAsText()
-            println("AutoTagService: Received ${html.length} bytes of HTML")
+            Logger.d(TAG, "Received ${html.length} bytes of HTML")
 
             // Limit processing to first 100KB to avoid memory issues on huge pages
             val trimmedHtml = if (html.length > 100_000) html.take(100_000) else html
@@ -39,7 +43,9 @@ class AutoTagService(private val httpClient: HttpClient) {
                 if (cleaned.isNotBlank()) {
                     textParts.add(cleaned)
                     textParts.add(cleaned) // Double weight for title
-                    println("AutoTagService: Extracted title: $cleaned")
+                    if (BuildConfig.DEBUG) {
+                        Logger.v(TAG, "Extracted title: $cleaned")
+                    }
                     cleaned
                 } else null
             }
@@ -49,7 +55,9 @@ class AutoTagService(private val httpClient: HttpClient) {
                 val cleaned = stripHtmlTags(it)
                 if (cleaned.isNotBlank()) {
                     textParts.add(cleaned)
-                    println("AutoTagService: Extracted description: $cleaned")
+                    if (BuildConfig.DEBUG) {
+                        Logger.v(TAG, "Extracted description: $cleaned")
+                    }
                     cleaned
                 } else null
             }
@@ -95,7 +103,7 @@ class AutoTagService(private val httpClient: HttpClient) {
             val wordCounts = mutableMapOf<String, Int>()
             
             // If we have explicit keywords, add them to counts with high weight
-            println("AutoTagService: keywordsTags found: $keywordsTags")
+            Logger.v(TAG, "keywordsTags found: $keywordsTags")
             keywordsTags?.forEach { keyword ->
                 val clean = keyword.trim().lowercase()
                 if (clean.isNotBlank()) {
@@ -104,7 +112,9 @@ class AutoTagService(private val httpClient: HttpClient) {
             }
 
             val combinedText = textParts.joinToString(" ")
-            println("AutoTagService: combinedText for analysis (length ${combinedText.length}): $combinedText")
+            if (BuildConfig.DEBUG) {
+                Logger.v(TAG, "combinedText for analysis (length ${combinedText.length}): $combinedText")
+            }
             
             combinedText
                 .lowercase()
@@ -116,7 +126,7 @@ class AutoTagService(private val httpClient: HttpClient) {
                     }
                 }
 
-            println("AutoTagService: wordCounts map: $wordCounts")
+            Logger.v(TAG, "wordCounts map: $wordCounts")
 
             val tags = wordCounts.entries
                 .filter { it.key.length >= 3 }
@@ -124,7 +134,7 @@ class AutoTagService(private val httpClient: HttpClient) {
                 .take(maxTags)
                 .map { it.key }
             
-            println("AutoTagService: Final generated tags: $tags")
+            Logger.d(TAG, "Final generated tags: $tags")
 
             PageMetadata(title, description, tags)
         }

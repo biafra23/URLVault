@@ -1,5 +1,6 @@
 package com.biafra23.anchorvault.sync
 
+import com.biafra23.anchorvault.Logger
 import com.biafra23.anchorvault.crypto.BitwardenEncryption
 import com.biafra23.anchorvault.crypto.CryptoProvider
 import com.biafra23.anchorvault.crypto.base64Encode
@@ -47,12 +48,13 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
     }
 
     companion object {
-        private const val TAG = "[AnchorVault:Sync]"
+        private const val TAG = "KtorBitwardenSyncService"
         // Stable device identifier so Bitwarden recognises this app across sessions.
         // This is not a secret — it simply identifies "AnchorVault" as a registered device.
         private const val DEVICE_IDENTIFIER = "b3a1c9d4-7e2f-4a8b-9c0d-1e2f3a4b5c6d"
 
-        private fun log(message: String) = println("$TAG $message")
+        private fun log(message: String) = Logger.d(TAG, message)
+        private fun logError(message: String, throwable: Throwable? = null) = Logger.e(TAG, message, throwable)
     }
 
     override suspend fun configure(credentials: BitwardenCredentials) {
@@ -97,7 +99,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
             log("Credential validation successful")
             null // success
         } catch (e: Exception) {
-            log("ERROR Credential validation failed: ${e.message}\n${e.stackTraceToString()}")
+            logError("Credential validation failed: ${e.message}", e)
             e.message ?: "Unknown error during credential validation"
         }
     }
@@ -127,7 +129,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
             log("Push completed successfully")
             SyncResult.Success
         } catch (e: Exception) {
-            log("ERROR Push failed: ${e.message}\n${e.stackTraceToString()}")
+            logError("Push failed: ${e.message}", e)
             SyncResult.Error(e.message ?: "Unknown error during push")
         }
     }
@@ -151,7 +153,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
             log("Pulled ${bookmarks.size} bookmarks successfully")
             Result.success(bookmarks)
         } catch (e: Exception) {
-            log("ERROR Pull failed: ${e.message}\n${e.stackTraceToString()}")
+            logError("Pull failed: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -238,7 +240,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         }
         if (!response.status.isSuccess()) {
             val body = runCatching { response.body<String>() }.getOrDefault("")
-            log("ERROR Prelogin failed (${response.status}): $body")
+            logError("Prelogin failed (${response.status}): $body")
             throw IllegalStateException(
                 "Prelogin failed (${response.status}) at $preloginUrl: $body"
             )
@@ -307,7 +309,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
 
         if (!httpResponse.status.isSuccess()) {
             val body = runCatching { httpResponse.body<String>() }.getOrDefault("")
-            log("ERROR Token request failed (${httpResponse.status}): $body")
+            logError("Token request failed (${httpResponse.status}): $body")
             throw IllegalStateException(
                 "Token request failed (${httpResponse.status}) at $tokenUrl: $body"
             )
@@ -335,7 +337,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                     vaultMacKey = vMacKey
                     log("Vault encryption keys derived successfully")
                 } catch (e: Exception) {
-                    log("ERROR Failed to derive vault keys: ${e.message}")
+                    logError("Failed to derive vault keys: ${e.message}", e)
                     throw IllegalStateException(
                         "Failed to derive encryption keys — check your master password: ${e.message}"
                     )
@@ -367,7 +369,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         }
         if (!foldersResponse.status.isSuccess()) {
             val body = runCatching { foldersResponse.body<String>() }.getOrDefault("")
-            log("ERROR Failed to list folders (${foldersResponse.status}): $body")
+            logError("Failed to list folders (${foldersResponse.status}): $body")
             throw IllegalStateException(
                 "Failed to list folders (${foldersResponse.status}) at $foldersUrl: $body"
             )
@@ -392,7 +394,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         }
         if (!createResponse.status.isSuccess()) {
             val body = runCatching { createResponse.body<String>() }.getOrDefault("")
-            log("ERROR Failed to create folder (${createResponse.status}): $body")
+            logError("Failed to create folder (${createResponse.status}): $body")
             throw IllegalStateException(
                 "Failed to create folder (${createResponse.status}) at $foldersUrl: $body"
             )
@@ -413,7 +415,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         }
         if (!response.status.isSuccess()) {
             val body = runCatching { response.body<String>() }.getOrDefault("")
-            log("ERROR Failed to fetch ciphers (${response.status}): $body")
+            logError("Failed to fetch ciphers (${response.status}): $body")
             throw IllegalStateException(
                 "Failed to fetch ciphers (${response.status}) at $ciphersUrl: $body"
             )
@@ -542,7 +544,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
             }
             if (!response.status.isSuccess()) {
                 val respBody = runCatching { response.body<String>() }.getOrDefault("")
-                log("ERROR Failed to upsert cipher '${item.name}' (${response.status}): $respBody")
+                logError("Failed to upsert cipher '${item.name}' (${response.status}): $respBody")
                 throw IllegalStateException(
                     "Failed to upsert cipher '${item.name}' (${response.status}): $respBody"
                 )

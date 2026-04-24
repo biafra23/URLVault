@@ -1,5 +1,6 @@
 package com.biafra23.anchorvault.desktop
 
+import com.biafra23.anchorvault.Logger
 import com.biafra23.anchorvault.sync.BitwardenCredentials
 import com.biafra23.anchorvault.sync.SettingsFieldHistory
 import kotlinx.serialization.encodeToString
@@ -135,6 +136,7 @@ class DesktopBitwardenPreferences {
         private const val GCM_TAG_BITS = 128
         private const val SERVICE_NAME = "anchorvault"
         private const val ACCOUNT_NAME = "credentials-key"
+        private const val TAG = "DesktopBitwardenPreferences"
     }
 
     // region Key backend interface + implementations
@@ -265,6 +267,7 @@ private fun generateAesKey(): SecretKey {
 }
 
 private fun runCommand(vararg command: String): String? {
+    val TAG = "DesktopBitwardenPreferences"
     return try {
         val process = ProcessBuilder(*command)
             .redirectErrorStream(true)
@@ -273,12 +276,13 @@ private fun runCommand(vararg command: String): String? {
         val exitCode = process.waitFor()
         if (exitCode == 0) output else null
     } catch (e: Exception) {
-        System.err.println("runCommand failed [${command.joinToString(" ")}]: ${e.message}")
+        Logger.e(TAG, "runCommand failed [${command.joinToString(" ")}]: ${e.message}", e)
         null
     }
 }
 
 private fun runCommandWithStdin(input: String, vararg command: String): String? {
+    val TAG = "DesktopBitwardenPreferences"
     return try {
         val process = ProcessBuilder(*command)
             .redirectErrorStream(true)
@@ -288,7 +292,7 @@ private fun runCommandWithStdin(input: String, vararg command: String): String? 
         val exitCode = process.waitFor()
         if (exitCode == 0) output else null
     } catch (e: Exception) {
-        System.err.println("runCommandWithStdin failed [${command.joinToString(" ")}]: ${e.message}")
+        Logger.e(TAG, "runCommandWithStdin failed [${command.joinToString(" ")}]: ${e.message}", e)
         null
     }
 }

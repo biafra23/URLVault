@@ -65,7 +65,9 @@ class WebPageContentExtractor(private val client: HttpClient) {
             }
 
             val html = response.bodyAsText()
-            Log.v(TAG, "HTML content length: ${html.length}")
+            if (com.biafra23.anchorvault.android.BuildConfig.DEBUG) {
+                Log.v(TAG, "HTML content length: ${html.length}")
+            }
             parseHtml(html)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to fetch $url: ${e.message}")
