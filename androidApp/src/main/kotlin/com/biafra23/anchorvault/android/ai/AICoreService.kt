@@ -6,8 +6,12 @@ import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
+import com.google.mlkit.genai.prompt.ModelPreference
+import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generateContentRequest
+import com.google.mlkit.genai.prompt.generationConfig
+import com.google.mlkit.genai.prompt.modelConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,35 +45,123 @@ class AICoreService(httpClient: HttpClient) {
     private val _status = MutableStateFlow<AICoreStatus>(AICoreStatus.Unknown)
     val status: StateFlow<AICoreStatus> = _status.asStateFlow()
 
-    private fun getOrCreateModel(): GenerativeModel =
-        generativeModel ?: Generation.getClient().also { generativeModel = it }
+    /**
+     * Obtains the generative model instance.
+     *
+     * In the ML Kit GenAI Prompt API, "Gemini Nano" is the system-managed model.
+     * The underlying architecture is based on Gemma. You can influence model selection
+     * via ModelConfig:
+     * - ModelReleaseStage.PREVIEW: Accesses newer architectures (like Nano v2/Gemma 4 based).
+     * - ModelPreference.FULL: Prioritizes accuracy (e.g. 4B variant) over speed (2B variant).
+     */
+    private fun getOrCreateModel(): GenerativeModel {
+        return generativeModel ?: createModelClient(
+            ModelReleaseStage.STABLE,
+            ModelPreference.FULL
+        ).also { generativeModel = it }
+    }
+
+    private fun createModelClient(
+        stage: Int,
+        pref: Int
+    ): GenerativeModel {
+        val config = generationConfig {
+            modelConfig = modelConfig {
+                releaseStage = stage
+                preference = pref
+            }
+        }
+        return Generation.getClient(config)
+    }
 
     /**
      * Initializes the model. Suspends until the model is ready or a terminal
-     * state is reached — if the model needs downloading, this collects the
-     * download progress Flow and updates [status] as it advances.
+     * state is reached. This follows the official Google recommendation to
+     * iterate through configurations and use [FeatureStatus] to find the
+     * best supported variant.
      */
     suspend fun initialize() {
         try {
             Log.d(TAG, "Initializing ML Kit GenAI Prompt API (Gemini Nano)...")
-            val model = getOrCreateModel()
-            when (model.checkStatus()) {
-                FeatureStatus.UNAVAILABLE -> {
-                    Log.w(TAG, "Gemini Nano unavailable on this device")
-                    _status.value = AICoreStatus.Unavailable
+            
+            // Preference order for models: try to find the most capable one supported by the device.
+            val configs = listOf(
+                ModelReleaseStage.PREVIEW to ModelPreference.FULL,
+                ModelReleaseStage.PREVIEW to ModelPreference.FAST,
+                ModelReleaseStage.STABLE to ModelPreference.FULL,
+                ModelReleaseStage.STABLE to ModelPreference.FAST
+            )
+            
+            var successfulModel: GenerativeModel? = null
+            
+            for ((stage, pref) in configs) {
+                var model: GenerativeModel? = null
+                try {
+                    model = createModelClient(stage, pref)
+                    val statusValue = model.checkStatus()
+                    
+                    Log.d(TAG, "Config Stage=${stage.toStageString()}, Pref=${pref.toPrefString()} has status: ${statusValue.toStatusString()}")
+                    
+                    if (statusValue != FeatureStatus.UNAVAILABLE) {
+                        Log.i(TAG, "Matched supported model: Stage=${stage.toStageString()}, Pref=${pref.toPrefString()} (Status=${statusValue.toStatusString()})")
+                        
+                        try {
+                            val baseModelName = model.getBaseModelName()
+                            Log.i(TAG, "Base Model Name: $baseModelName")
+                        } catch (_: Exception) {
+                            // Not all AICore versions support this call yet
+                            Log.v(TAG, "Base model name not available for this variant")
+                        }
+
+                        successfulModel = model
+                        break
+                    } else {
+                        model.close()
+                    }
+                } catch (e: Exception) {
+                    val statusStr = try {
+                        model?.checkStatus()?.toStatusString() ?: "UNINITIALIZED"
+                    } catch (_: Exception) {
+                        "ERROR_DURING_CHECK"
+                    }
+                    Log.w(TAG, "Config Stage=${stage.toStageString()}, Pref=${pref.toPrefString()} (Status=$statusStr) is unsupported or threw error: ${e.message}")
+                    model?.close()
                 }
+            }
+
+            val model = successfulModel
+            if (model == null) {
+                Log.w(TAG, "Gemini Nano is not supported by any configuration on this device")
+                _status.value = AICoreStatus.Unavailable
+                return
+            }
+
+            generativeModel = model
+            
+            // Final status check to handle downloads vs availability
+            when (model.checkStatus()) {
                 FeatureStatus.DOWNLOADABLE, FeatureStatus.DOWNLOADING -> {
                     collectDownload(model)
                 }
                 FeatureStatus.AVAILABLE -> {
-                    Log.d(TAG, "Model available, warming up inference engine...")
+                    Log.d(TAG, "Model available, warming up...")
                     model.warmup()
                     _status.value = AICoreStatus.Available
                 }
+                else -> {
+                    _status.value = AICoreStatus.Unavailable
+                }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "ML Kit GenAI initialization error: ${e.javaClass.simpleName}: ${e.message}", e)
-            _status.value = AICoreStatus.Failed(e.message ?: "Initialization failed")
+            Log.w(TAG, "ML Kit GenAI initialization error: ${e.message}", e)
+            
+            // Error 606 (FEATURE_NOT_FOUND) often means AICore is present but this specific 
+            // feature (Prompt API / Feature 647) is not available or supported on this device.
+            if (e.message?.contains("606") == true || e.message?.contains("FEATURE_NOT_FOUND") == true) {
+                _status.value = AICoreStatus.Unavailable
+            } else {
+                _status.value = AICoreStatus.Failed(e.message ?: "Initialization failed")
+            }
         }
     }
 
@@ -139,8 +231,15 @@ class AICoreService(httpClient: HttpClient) {
                 }
             }
             Log.v(TAG, "AI Prompt prepared for tag generation (titleIncluded=${title.isNotBlank()}, descriptionIncluded=${description.isNotBlank()}, pageSummaryIncluded=${pageSummary.isNotBlank()}, length=${prompt.length})")
+            
+            if (com.biafra23.anchorvault.android.BuildConfig.DEBUG) {
+                runBenchmarking(prompt)
+            }
+
             val text = runInference(prompt)
-            Log.d(TAG, "AI Response: $text")
+            if (com.biafra23.anchorvault.android.BuildConfig.DEBUG) {
+                Log.d(TAG, "AI Response: $text")
+            }
             
             // Aggressively clean the AI response: split by comma/newline/semicolon,
             // then strip all non-alphanumeric (allowing hyphens and internal spaces)
@@ -182,6 +281,11 @@ class AICoreService(httpClient: HttpClient) {
                     appendLine("If you cannot determine what the page is about, respond with: Unable to generate description.")
                 }
             }
+            
+            if (com.biafra23.anchorvault.android.BuildConfig.DEBUG) {
+                runBenchmarking(prompt)
+            }
+
             validateDescription(runInference(prompt).trim())
         }
     }
@@ -229,6 +333,65 @@ class AICoreService(httpClient: HttpClient) {
         return candidate.text.ifBlank { error("Empty response from AI model") }
     }
 
+    /**
+     * Runs inference across all model permutations to compare performance and quality.
+     * Only executed in debug builds.
+     */
+    private suspend fun runBenchmarking(prompt: String) {
+        val stages = listOf(ModelReleaseStage.STABLE, ModelReleaseStage.PREVIEW)
+        val preferences = listOf(ModelPreference.FAST, ModelPreference.FULL)
+
+        Log.i(TAG, "--- Gemini Nano Benchmark Start ---")
+        for (stage in stages) {
+            for (pref in preferences) {
+                try {
+                    val config = generationConfig {
+                        modelConfig = modelConfig {
+                            releaseStage = stage
+                            preference = pref
+                        }
+                    }
+                    val model = Generation.getClient(config)
+                    
+                    val statusValue = model.checkStatus()
+                    
+                    if (statusValue != FeatureStatus.AVAILABLE) {
+                        Log.i(TAG, "BENCHMARK | Stage=${stage.toStageString()} | Pref=${pref.toPrefString()} | Status=${statusValue.toStatusString()} | Skip inference")
+                        model.close()
+                        continue
+                    }
+
+                    // Note: warmup() ensures the model is loaded into memory/NPU
+                    model.warmup() 
+
+                    val startTime = System.currentTimeMillis()
+                    val response = model.generateContent(
+                        generateContentRequest(TextPart(prompt)) {
+                            temperature = 0.0f
+                            topK = 1
+                            maxOutputTokens = 256
+                        }
+                    )
+                    val duration = System.currentTimeMillis() - startTime
+                    val resultText = response.candidates.firstOrNull()?.text?.trim()?.replace("\n", " ") ?: "EMPTY"
+                    
+                    Log.i(TAG, "BENCHMARK | Stage=${stage.toStageString()} | Pref=${pref.toPrefString()} | Status=${statusValue.toStatusString()} | Time=${duration}ms | Result=$resultText")
+                    
+                    model.close()
+                } catch (e: Exception) {
+                    val statusStr = try {
+                        // Re-check status if possible, but keep in mind 'model' might be closed or invalid
+                        "ERROR_DURING_RUN"
+                    } catch (_: Exception) {
+                        "UNKNOWN"
+                    }
+                    Log.w(TAG, "BENCHMARK | Stage=${stage.toStageString()} | Pref=${pref.toPrefString()} | Status=$statusStr | Failed=${e.message}")
+                }
+            }
+        }
+        Log.i(TAG, "--- Gemini Nano Benchmark End ---")
+    }
+
     private fun validateDescription(text: String): String {
         if (text.length > MAX_DESCRIPTION_LENGTH) {
             return text.take(MAX_DESCRIPTION_LENGTH)
@@ -238,6 +401,26 @@ class AICoreService(httpClient: HttpClient) {
             return Regex("https?://\\S+").replace(text, "").trim()
         }
         return text
+    }
+
+    private fun Int.toStatusString(): String = when (this) {
+        FeatureStatus.UNAVAILABLE -> "UNAVAILABLE"
+        FeatureStatus.DOWNLOADABLE -> "DOWNLOADABLE"
+        FeatureStatus.DOWNLOADING -> "DOWNLOADING"
+        FeatureStatus.AVAILABLE -> "AVAILABLE"
+        else -> "UNKNOWN ($this)"
+    }
+
+    private fun Int.toStageString(): String = when (this) {
+        ModelReleaseStage.STABLE -> "STABLE"
+        ModelReleaseStage.PREVIEW -> "PREVIEW"
+        else -> "UNKNOWN ($this)"
+    }
+
+    private fun Int.toPrefString(): String = when (this) {
+        ModelPreference.FAST -> "FAST"
+        ModelPreference.FULL -> "FULL"
+        else -> "UNKNOWN ($this)"
     }
 
     fun close() {
