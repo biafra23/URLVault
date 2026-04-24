@@ -44,8 +44,24 @@ jobs:
           retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
 
   build-desktop:
-    name: Build Desktop (Linux)
-    runs-on: ubuntu-latest
+    name: Build Desktop (${{ matrix.os-label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os-label: Linux
+            installer-glob: desktopApp/build/compose/binaries/main/deb/*.deb
+            artifact-name: desktop-linux-deb
+          - os: macos-latest
+            os-label: macOS
+            installer-glob: desktopApp/build/compose/binaries/main/dmg/*.dmg
+            artifact-name: desktop-macos-dmg
+          - os: windows-latest
+            os-label: Windows
+            installer-glob: desktopApp/build/compose/binaries/main/msi/*.msi
+            artifact-name: desktop-windows-msi
 
     steps:
       - name: Checkout
@@ -62,5 +78,13 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      - name: Build Desktop (compile check)
-        run: ./gradlew :desktopApp:compileKotlinDesktop --no-daemon
+      - name: Package Desktop distributable
+        shell: bash
+        run: ./gradlew :desktopApp:packageDistributionForCurrentOS --no-daemon
+
+      - name: Upload Desktop installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.installer-glob }}
+          retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
