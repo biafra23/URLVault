@@ -18,9 +18,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun bookmarkDao(): BookmarkDao
 
     companion object {
-        // Filename kept as `anchorvault.db` (the original AnchorVault name) so existing
-        // installs continue to open their encrypted database after the URLVault rename.
-        private const val DATABASE_NAME = "anchorvault.db"
+        private const val DATABASE_NAME = "urlvault.db"
 
         @Volatile
         private var INSTANCE: AppDatabase? = null

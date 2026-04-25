@@ -17,17 +17,15 @@ import java.sql.DriverManager
  * SQLite-backed implementation of [BookmarkRepository] for Desktop.
  *
  * Uses the xerial JDBC driver (org.xerial:sqlite-jdbc) for persistence.
- * The database file is stored in the user's home directory under `.anchorvault/`,
- * the original AnchorVault path. Kept as-is after the URLVault rename so existing
- * desktop installs continue to find their bookmarks database.
+ * The database file is stored in the user's home directory under `.urlvault/`.
  */
 class DesktopBookmarkRepository : BookmarkRepository, Closeable {
 
     private val dbPath: String = run {
         val home = System.getProperty("user.home")
-        val dir = java.io.File("$home/.anchorvault")
+        val dir = java.io.File("$home/.urlvault")
         dir.mkdirs()
-        "$home/.anchorvault/bookmarks.db"
+        "$home/.urlvault/bookmarks.db"
     }
 
     private val json = Json { ignoreUnknownKeys = true }

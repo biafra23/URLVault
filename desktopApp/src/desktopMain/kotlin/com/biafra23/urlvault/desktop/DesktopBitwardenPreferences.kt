@@ -29,9 +29,7 @@ class DesktopBitwardenPreferences {
 
     private val appDir: File = run {
         val home = System.getProperty("user.home")
-        // Storage path kept as `~/.anchorvault` so existing installs continue to find their
-        // settings, credentials, and PKCS12 keystore after the URLVault rename.
-        val dir = File("$home/.anchorvault")
+        val dir = File("$home/.urlvault")
         dir.mkdirs()
         dir
     }
@@ -136,9 +134,7 @@ class DesktopBitwardenPreferences {
     companion object {
         private const val AES_GCM_TRANSFORM = "AES/GCM/NoPadding"
         private const val GCM_TAG_BITS = 128
-        // Service name kept as the original AnchorVault value so existing entries in the macOS
-        // Keychain / Linux Secret Service remain accessible after the URLVault rename.
-        private const val SERVICE_NAME = "anchorvault"
+        private const val SERVICE_NAME = "urlvault"
         private const val ACCOUNT_NAME = "credentials-key"
         private const val TAG = "DesktopBitwardenPreferences"
     }
@@ -208,7 +204,7 @@ class DesktopBitwardenPreferences {
             val stored = runCommandWithStdin(
                 input = b64,
                 "secret-tool", "store",
-                "--label=AnchorVault Credentials Key",
+                "--label=URLVault Credentials Key",
                 "application", SERVICE_NAME,
                 "type", ACCOUNT_NAME
             )
@@ -229,10 +225,8 @@ class DesktopBitwardenPreferences {
             // the raw PKCS12 file cannot be brute-forced trivially.
             val user = System.getProperty("user.name") ?: "unknown"
             val home = System.getProperty("user.home") ?: "/tmp"
-            // PBKDF2 inputs kept as the original AnchorVault values so the derived keystore
-            // password matches existing PKCS12 files written by previous AnchorVault releases.
-            val base = "AnchorVault:$user:$home"
-            val salt = "AnchorVault-PKCS12-salt".toByteArray()
+            val base = "URLVault:$user:$home"
+            val salt = "URLVault-PKCS12-salt".toByteArray()
             val spec = javax.crypto.spec.PBEKeySpec(base.toCharArray(), salt, 100_000, 256)
             val skf = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
             java.util.Base64.getEncoder().encodeToString(skf.generateSecret(spec).encoded).toCharArray()
@@ -244,7 +238,7 @@ class DesktopBitwardenPreferences {
             val keyStore = KeyStore.getInstance("PKCS12")
             if (keystoreFile.exists()) {
                 keystoreFile.inputStream().use { keyStore.load(it, keystorePassword) }
-                val entry = keyStore.getEntry("anchorvault_key", KeyStore.PasswordProtection(keystorePassword))
+                val entry = keyStore.getEntry("urlvault_key", KeyStore.PasswordProtection(keystorePassword))
                 if (entry is KeyStore.SecretKeyEntry) {
                     return entry.secretKey
                 }
@@ -252,7 +246,7 @@ class DesktopBitwardenPreferences {
             val key = generateAesKey()
             keyStore.load(null, keystorePassword)
             keyStore.setEntry(
-                "anchorvault_key",
+                "urlvault_key",
                 KeyStore.SecretKeyEntry(key),
                 KeyStore.PasswordProtection(keystorePassword)
             )

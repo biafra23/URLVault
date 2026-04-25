@@ -30,7 +30,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.biafra23.anchorvault"
+        applicationId = "com.biafra23.urlvault"
         minSdk = 31
         targetSdk = 36
         versionCode = appVersionCode

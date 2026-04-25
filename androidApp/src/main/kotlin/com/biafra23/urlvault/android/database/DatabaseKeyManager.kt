@@ -20,10 +20,8 @@ import javax.crypto.spec.GCMParameterSpec
 object DatabaseKeyManager {
 
     private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
-    // Keystore alias and SharedPreferences file name kept as the original AnchorVault values
-    // so existing installs can still unwrap the database passphrase after the URLVault rename.
-    private const val KEY_ALIAS = "AnchorVaultDbKey"
-    private const val PREFS_NAME = "anchorvault_prefs"
+    private const val KEY_ALIAS = "URLVaultDbKey"
+    private const val PREFS_NAME = "urlvault_prefs"
     private const val PREF_ENCRYPTED_KEY = "encrypted_db_key"
     private const val PREF_IV = "db_key_iv"
     private const val GCM_TAG_LENGTH = 128
