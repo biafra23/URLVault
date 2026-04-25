@@ -43,7 +43,7 @@ kotlin {
 
 compose.desktop {
     application {
-        mainClass = "com.biafra23.urlvault.desktop.MainKt"
+        mainClass = "com.jaeckel.urlvault.desktop.MainKt"
         from(kotlin.targets["desktop"])
 
         nativeDistributions {
@@ -56,7 +56,7 @@ compose.desktop {
 
             macOS {
                 iconFile.set(project.file("src/desktopMain/resources/icon.icns"))
-                bundleID = "com.biafra23.urlvault"
+                bundleID = "com.jaeckel.urlvault"
             }
             windows {
                 iconFile.set(project.file("src/desktopMain/resources/icon.ico"))

@@ -66,7 +66,7 @@ There are no tests in the project yet. The Android module is configured with `An
 ### Package Structure (shared module)
 
 ```
-com.biafra23.urlvault/
+com.jaeckel.urlvault/
 ├── model/          # Bookmark, Tag (both @Serializable)
 ├── repository/     # BookmarkRepository interface
 ├── sync/           # BitwardenSyncService, KtorBitwardenSyncService, BitwardenCredentials

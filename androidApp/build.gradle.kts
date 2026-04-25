@@ -26,11 +26,11 @@ val gitShortHash: String = runCatching {
 }.getOrNull()?.takeIf { it.isNotBlank() } ?: "nogit"
 
 android {
-    namespace = "com.biafra23.urlvault.android"
+    namespace = "com.jaeckel.urlvault.android"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.biafra23.urlvault"
+        applicationId = "com.jaeckel.urlvault"
         minSdk = 31
         targetSdk = 36
         versionCode = appVersionCode
