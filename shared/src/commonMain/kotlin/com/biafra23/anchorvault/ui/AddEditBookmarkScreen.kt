@@ -245,7 +245,7 @@ fun AddEditBookmarkScreen(
                 // Chain-trigger AI tags now that we have a description
                 if (aiCoreEnabled && onAiGenerateTags != null) {
                     aiTagError = null
-                    onAiGenerateTags(currentTarget!!, title, aiDescriptionState.description)
+                    onAiGenerateTags(currentTarget!!, title, description)
                 }
             }
             is AIGenerationState.Error -> {

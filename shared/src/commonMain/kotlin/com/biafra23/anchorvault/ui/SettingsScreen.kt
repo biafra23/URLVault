@@ -208,19 +208,44 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            val formValid = email.isNotBlank() && masterPassword.isNotBlank()
+            val rawServerUrl = serverUrl.trim().trimEnd('/')
+            val normalizedServerUrl = if (rawServerUrl.isNotBlank() && !rawServerUrl.contains("://")) {
+                "https://$rawServerUrl"
+            } else {
+                rawServerUrl
+            }
+            val selfHostedUrlValid = !useSelfHosted || (
+                normalizedServerUrl.isNotBlank() &&
+                    (normalizedServerUrl.startsWith("https://") || normalizedServerUrl.startsWith("http://")) &&
+                    normalizedServerUrl.substringAfter("://").isNotBlank() &&
+                    !normalizedServerUrl.substringAfter("://").startsWith("/") &&
+                    !normalizedServerUrl.contains(' ')
+                )
+            val serverUrlError = if (useSelfHosted && !selfHostedUrlValid) {
+                "Enter a valid self-hosted server URL."
+            } else {
+                null
+            }
+            val formValid = email.isNotBlank() && masterPassword.isNotBlank() && selfHostedUrlValid
+
+            if (serverUrlError != null) {
+                Text(
+                    text = serverUrlError,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
             Button(
                 onClick = {
-                    val rawUrl = serverUrl.trim().trimEnd('/')
-                    val normalizedUrl = if (rawUrl.isNotBlank() && !rawUrl.contains("://")) "https://$rawUrl" else rawUrl
                     val effectiveApiBaseUrl = if (useSelfHosted) {
-                        "$normalizedUrl/api"
+                        "$normalizedServerUrl/api"
                     } else {
                         "https://api.bitwarden.com"
                     }
                     val effectiveIdentityUrl = if (useSelfHosted) {
-                        "$normalizedUrl/identity"
+                        "$normalizedServerUrl/identity"
                     } else {
                         "https://identity.bitwarden.com"
                     }
