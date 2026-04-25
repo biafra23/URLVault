@@ -72,19 +72,21 @@ compose.desktop {
 
 // Compose Desktop's packageVersion must match strict per-platform version formats, so the commit
 // hash cannot be part of it. Append it to the produced installer filenames instead.
-listOf("Dmg", "Msi", "Deb").forEach { format ->
+for (format in listOf("Dmg", "Msi", "Deb")) {
     tasks.matching { it.name == "package$format" }.configureEach {
         doLast {
             val outputDir = layout.buildDirectory
                 .dir("compose/binaries/main/${format.lowercase()}")
                 .get().asFile
-            outputDir.listFiles { f -> f.extension.equals(format, ignoreCase = true) }
-                ?.forEach { file ->
-                    if (file.nameWithoutExtension.endsWith("-$gitShortHash")) return@forEach
-                    val renamed = java.io.File(outputDir, "${file.nameWithoutExtension}-$gitShortHash.${file.extension}")
-                    if (renamed.exists()) renamed.delete()
-                    file.renameTo(renamed)
-                }
+            val matches = outputDir.listFiles()
+                ?.filter { it.extension.equals(format, ignoreCase = true) }
+                .orEmpty()
+            for (original in matches) {
+                if (original.nameWithoutExtension.endsWith("-$gitShortHash")) continue
+                val target = File(outputDir, "${original.nameWithoutExtension}-$gitShortHash.${original.extension}")
+                if (target.exists()) target.delete()
+                original.renameTo(target)
+            }
         }
     }
 }
