@@ -24,16 +24,32 @@ class IosBookmarkRepository : BookmarkRepository {
 
     override fun getAllTags(): Flow<List<String>> =
         _bookmarks.map { bookmarks ->
-            bookmarks.flatMap { it.tags }.distinct().sorted()
+            bookmarks.flatMap { it.tags }
+                .map { tag ->
+                    tag.trim()
+                        .replace(Regex("[\\\\\\[\\]\\\"']"), "")
+                        .trim()
+                }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
         }
 
     override suspend fun getBookmarkById(id: String): Bookmark? =
         _bookmarks.value.firstOrNull { it.id == id }
 
     override suspend fun upsertBookmark(bookmark: Bookmark) {
+        val sanitizedTags = bookmark.tags.map { tag ->
+            tag.trim()
+                .replace(Regex("[\\\\\\[\\]\\\"']"), "")
+                .trim()
+        }.filter { it.isNotBlank() }
+
+        val sanitizedBookmark = bookmark.copy(tags = sanitizedTags)
+
         _bookmarks.value = _bookmarks.value
             .filterNot { it.id == bookmark.id }
-            .plus(bookmark)
+            .plus(sanitizedBookmark)
             .sortedByDescending { it.updatedAt }
     }
 

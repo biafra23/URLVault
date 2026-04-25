@@ -1,6 +1,9 @@
 package com.biafra23.anchorvault.sync
 
+import com.biafra23.anchorvault.Logger
 import com.biafra23.anchorvault.crypto.BitwardenEncryption
+import com.biafra23.anchorvault.crypto.CryptoProvider
+import com.biafra23.anchorvault.crypto.base64Encode
 import com.biafra23.anchorvault.model.Bookmark
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -45,12 +48,13 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
     }
 
     companion object {
-        private const val TAG = "[AnchorVault:Sync]"
+        private const val TAG = "KtorBitwardenSyncService"
         // Stable device identifier so Bitwarden recognises this app across sessions.
         // This is not a secret — it simply identifies "AnchorVault" as a registered device.
         private const val DEVICE_IDENTIFIER = "b3a1c9d4-7e2f-4a8b-9c0d-1e2f3a4b5c6d"
 
-        private fun log(message: String) = println("$TAG $message")
+        private fun log(message: String) = Logger.d(TAG, message)
+        private fun logError(message: String, throwable: Throwable? = null) = Logger.e(TAG, message, throwable)
     }
 
     override suspend fun configure(credentials: BitwardenCredentials) {
@@ -90,12 +94,12 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         log("Validating credentials (identityUrl=${credentials.identityUrl}, apiUrl=${credentials.apiBaseUrl})")
         return try {
             val token = getAccessToken(credentials)
-                ?: return "Authentication failed — check your Client ID, Client Secret, and Identity URL."
+                ?: return "Authentication failed — check your email, master password, and server URL."
             getOrCreateFolder(credentials, token, credentials.folderName)
             log("Credential validation successful")
             null // success
         } catch (e: Exception) {
-            log("ERROR Credential validation failed: ${e.message}\n${e.stackTraceToString()}")
+            logError("Credential validation failed: ${e.message}", e)
             e.message ?: "Unknown error during credential validation"
         }
     }
@@ -125,7 +129,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
             log("Push completed successfully")
             SyncResult.Success
         } catch (e: Exception) {
-            log("ERROR Push failed: ${e.message}\n${e.stackTraceToString()}")
+            logError("Push failed: ${e.message}", e)
             SyncResult.Error(e.message ?: "Unknown error during push")
         }
     }
@@ -149,7 +153,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
             log("Pulled ${bookmarks.size} bookmarks successfully")
             Result.success(bookmarks)
         } catch (e: Exception) {
-            log("ERROR Pull failed: ${e.message}\n${e.stackTraceToString()}")
+            logError("Pull failed: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -190,10 +194,16 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
     // region Private Bitwarden API helpers
 
     @Serializable
+    private data class PreloginResponse(
+        val kdf: Int = 0,              // 0 = PBKDF2, 1 = Argon2id
+        val kdfIterations: Int = 600000
+    )
+
+    @Serializable
     private data class TokenResponse(
         val access_token: String,
         val expires_in: Long = 3600,
-        // Encryption-related fields (present when authenticating with API key)
+        // Encryption-related fields
         val Key: String? = null,
         val Kdf: Int? = null,          // 0 = PBKDF2, 1 = Argon2id
         val KdfIterations: Int? = null
@@ -217,6 +227,46 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
     @Serializable
     private data class VaultListResponse(val data: List<VaultItemResponse>)
 
+    /**
+     * Calls the /accounts/prelogin endpoint to retrieve KDF parameters for the account.
+     */
+    private suspend fun prelogin(creds: BitwardenCredentials): PreloginResponse {
+        val email = requireNotNull(creds.email) { "Email is required for password authentication" }
+        val preloginUrl = "${creds.identityUrl}/accounts/prelogin"
+        log("Prelogin at $preloginUrl")
+        val response = httpClient.post(preloginUrl) {
+            contentType(ContentType.Application.Json)
+            setBody(mapOf("email" to email))
+        }
+        if (!response.status.isSuccess()) {
+            val body = runCatching { response.body<String>() }.getOrDefault("")
+            logError("Prelogin failed (${response.status}): $body")
+            throw IllegalStateException(
+                "Prelogin failed (${response.status}) at $preloginUrl: $body"
+            )
+        }
+        return response.body<PreloginResponse>().also {
+            log("Prelogin OK — kdf=${it.kdf}, iterations=${it.kdfIterations}")
+        }
+    }
+
+    /**
+     * Derives the "master password hash" that Bitwarden accepts as the password credential.
+     * masterPasswordHash = base64(PBKDF2(masterKey, masterPassword, 1 iteration, 32 bytes))
+     *
+     * PBKDF2 with 1 iteration and 32-byte output (= one SHA-256 block) reduces to:
+     *   HMAC-SHA256(key=masterKey, data=salt || INT32BE(1))
+     *
+     * We compute this directly via HMAC to avoid Java's PBEKeySpec char-encoding
+     * issue which corrupts raw byte keys with values > 127.
+     */
+    private fun hashMasterPassword(masterKey: ByteArray, masterPassword: String): String {
+        val salt = masterPassword.encodeToByteArray()
+        val blockIndex = byteArrayOf(0, 0, 0, 1) // INT32BE(1)
+        val hash = CryptoProvider.hmacSha256(masterKey, salt + blockIndex)
+        return base64Encode(hash)
+    }
+
     private suspend fun getAccessToken(creds: BitwardenCredentials): String? {
         authMutex.withLock {
             val now = Clock.System.now().toEpochMilliseconds()
@@ -226,21 +276,40 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         }
         val tokenUrl = "${creds.identityUrl}/connect/token"
         log("Requesting token from $tokenUrl")
+
+        val email = requireNotNull(creds.email) { "Email is required" }
+        val password = requireNotNull(creds.masterPassword) { "Master password is required" }
+
+        // Step 1: prelogin to get KDF params
+        val preloginResp = prelogin(creds)
+        require(preloginResp.kdf == 0) {
+            "Only PBKDF2 (kdf=0) is supported, got kdf=${preloginResp.kdf}"
+        }
+
+        // Step 2: derive master key and hash
+        val masterKey = BitwardenEncryption.deriveMasterKey(
+            password, email, preloginResp.kdfIterations
+        )
+        val hashedPassword = hashMasterPassword(masterKey, password)
+
+        // Step 3: token request with password grant
         val httpResponse: HttpResponse = httpClient.submitForm(
             url = tokenUrl,
             formParameters = Parameters.build {
-                append("grant_type", "client_credentials")
-                append("scope", "api")
-                append("client_id", creds.clientId)
-                append("client_secret", creds.clientSecret)
-                append("deviceType", "21") // SDK / CLI device type
+                append("grant_type", "password")
+                append("scope", "api offline_access")
+                append("client_id", "web")
+                append("username", email)
+                append("password", hashedPassword)
+                append("deviceType", "21")
                 append("deviceIdentifier", DEVICE_IDENTIFIER)
                 append("deviceName", "AnchorVault")
             }
         )
+
         if (!httpResponse.status.isSuccess()) {
             val body = runCatching { httpResponse.body<String>() }.getOrDefault("")
-            log("ERROR Token request failed (${httpResponse.status}): $body")
+            logError("Token request failed (${httpResponse.status}): $body")
             throw IllegalStateException(
                 "Token request failed (${httpResponse.status}) at $tokenUrl: $body"
             )
@@ -248,8 +317,8 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         log("Token acquired successfully")
         val response: TokenResponse = httpResponse.body()
 
-        // Derive vault encryption keys if master password is provided
-        if (creds.masterPassword != null && creds.email != null && response.Key != null) {
+        // Derive vault encryption keys from the master password
+        if (response.Key != null) {
             if (vaultEncKey == null) {
                 try {
                     val kdfIterations = response.KdfIterations ?: 600000
@@ -258,7 +327,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
 
                     log("Deriving vault encryption keys (PBKDF2, $kdfIterations iterations)")
                     val masterKey = BitwardenEncryption.deriveMasterKey(
-                        creds.masterPassword, creds.email, kdfIterations
+                        password, email, kdfIterations
                     )
                     val (stretchedEncKey, stretchedMacKey) = BitwardenEncryption.stretchMasterKey(masterKey)
                     val (vEncKey, vMacKey) = BitwardenEncryption.decryptEncryptionKey(
@@ -268,7 +337,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                     vaultMacKey = vMacKey
                     log("Vault encryption keys derived successfully")
                 } catch (e: Exception) {
-                    log("ERROR Failed to derive vault keys: ${e.message}")
+                    logError("Failed to derive vault keys: ${e.message}", e)
                     throw IllegalStateException(
                         "Failed to derive encryption keys — check your master password: ${e.message}"
                     )
@@ -300,7 +369,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         }
         if (!foldersResponse.status.isSuccess()) {
             val body = runCatching { foldersResponse.body<String>() }.getOrDefault("")
-            log("ERROR Failed to list folders (${foldersResponse.status}): $body")
+            logError("Failed to list folders (${foldersResponse.status}): $body")
             throw IllegalStateException(
                 "Failed to list folders (${foldersResponse.status}) at $foldersUrl: $body"
             )
@@ -325,7 +394,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         }
         if (!createResponse.status.isSuccess()) {
             val body = runCatching { createResponse.body<String>() }.getOrDefault("")
-            log("ERROR Failed to create folder (${createResponse.status}): $body")
+            logError("Failed to create folder (${createResponse.status}): $body")
             throw IllegalStateException(
                 "Failed to create folder (${createResponse.status}) at $foldersUrl: $body"
             )
@@ -346,7 +415,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
         }
         if (!response.status.isSuccess()) {
             val body = runCatching { response.body<String>() }.getOrDefault("")
-            log("ERROR Failed to fetch ciphers (${response.status}): $body")
+            logError("Failed to fetch ciphers (${response.status}): $body")
             throw IllegalStateException(
                 "Failed to fetch ciphers (${response.status}) at $ciphersUrl: $body"
             )
@@ -461,20 +530,21 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                     setBody(cipherBody)
                 }
             } else {
-                // CREATE: POST to /ciphers/create with wrapper (folderId at wrapper level)
-                val createBody = CipherCreateRequest(
-                    cipher = cipherBody,
-                    folderId = folderId
+                // CREATE: POST to /ciphers/create with folderId in the wrapper
+                val createRequest = CipherCreateRequest(
+                    cipher = cipherBody.copy(folderId = null),
+                    folderId = folderId,
+                    collectionIds = null
                 )
                 httpClient.post("${creds.apiBaseUrl}/ciphers/create") {
                     bearerAuth(token)
                     contentType(ContentType.Application.Json)
-                    setBody(createBody)
+                    setBody(createRequest)
                 }
             }
             if (!response.status.isSuccess()) {
                 val respBody = runCatching { response.body<String>() }.getOrDefault("")
-                log("ERROR Failed to upsert cipher '${item.name}' (${response.status}): $respBody")
+                logError("Failed to upsert cipher '${item.name}' (${response.status}): $respBody")
                 throw IllegalStateException(
                     "Failed to upsert cipher '${item.name}' (${response.status}): $respBody"
                 )

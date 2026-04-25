@@ -12,8 +12,8 @@
 -keepclassmembers class com.biafra23.anchorvault.sync.BitwardenCredentials { *; }
 
 # SQLCipher
--keep class net.sqlcipher.** { *; }
--keep class net.sqlcipher.database.** { *; }
+-keep class net.zetetic.** { *; }
+-keep class net.zetetic.database.** { *; }
 
 # Kotlin Serialization
 -keepattributes *Annotation*, InnerClasses

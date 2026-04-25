@@ -21,8 +21,24 @@ class RoomBookmarkRepository(private val dao: BookmarkDao) : BookmarkRepository 
     override fun getAllTags(): Flow<List<String>> =
         dao.getAllTagStrings().map { tagStrings ->
             tagStrings
-                .flatMap { it.split(",") }
-                .map { it.trim() }
+                .flatMap { raw ->
+                    if (raw.isBlank()) {
+                        emptyList()
+                    } else if (raw.startsWith("[")) {
+                        // JSON array format
+                        runCatching { 
+                            kotlinx.serialization.json.Json.decodeFromString<List<String>>(raw) 
+                        }.getOrElse { emptyList() }
+                    } else {
+                        // Legacy comma-separated format
+                        raw.split(",").map { it.trim() }
+                    }
+                }
+                .map { tag ->
+                    tag.trim()
+                        .replace(Regex("[\\\\\\[\\]\\\"']"), "")
+                        .trim()
+                }
                 .filter { it.isNotBlank() }
                 .distinct()
                 .sorted()

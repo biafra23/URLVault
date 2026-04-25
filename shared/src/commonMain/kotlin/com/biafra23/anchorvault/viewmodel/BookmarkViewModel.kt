@@ -49,8 +49,25 @@ sealed class SyncStatus {
 sealed class AutoTagState {
     data object Idle : AutoTagState()
     data object Loading : AutoTagState()
-    data class Success(val tags: List<String>) : AutoTagState()
+    data class Success(
+        val tags: List<String>,
+        val title: String? = null,
+        val description: String? = null,
+        val sourceUrl: String? = null
+    ) : AutoTagState()
     data class Error(val message: String) : AutoTagState()
+}
+
+/**
+ * Represents the current state of an AI generation operation (tags or description).
+ */
+sealed class AIGenerationState {
+    data object Idle : AIGenerationState()
+    data object Loading : AIGenerationState()
+    data class TagsSuccess(val tags: List<String>, val sourceUrl: String? = null) : AIGenerationState()
+    data class DescriptionSuccess(val description: String, val sourceUrl: String? = null) : AIGenerationState()
+    data class TitleSuccess(val title: String, val sourceUrl: String? = null) : AIGenerationState()
+    data class Error(val message: String) : AIGenerationState()
 }
 
 /** Internal holder for tag/search filter parameters. */
@@ -63,7 +80,10 @@ private data class FilterState(val selectedTag: String?, val searchQuery: String
 class BookmarkViewModel(
     private val repository: BookmarkRepository,
     private val syncService: BitwardenSyncService,
-    private val autoTagService: AutoTagService? = null
+    private val autoTagService: AutoTagService? = null,
+    private val aiTagGenerator: (suspend (String, String, String) -> Result<List<String>>)? = null,
+    private val aiDescriptionGenerator: (suspend (String, String) -> Result<String>)? = null,
+    private val aiTitleGenerator: (suspend (String) -> Result<String>)? = null
 ) : ViewModel() {
 
     private val _selectedTag = MutableStateFlow<String?>(null)
@@ -71,8 +91,14 @@ class BookmarkViewModel(
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     private val _errorMessage = MutableStateFlow<String?>(null)
     private val _autoTagState = MutableStateFlow<AutoTagState>(AutoTagState.Idle)
+    private val _aiTagState = MutableStateFlow<AIGenerationState>(AIGenerationState.Idle)
+    private val _aiDescriptionState = MutableStateFlow<AIGenerationState>(AIGenerationState.Idle)
+    private val _aiTitleState = MutableStateFlow<AIGenerationState>(AIGenerationState.Idle)
 
     val autoTagState: StateFlow<AutoTagState> = _autoTagState.asStateFlow()
+    val aiTagState: StateFlow<AIGenerationState> = _aiTagState.asStateFlow()
+    val aiDescriptionState: StateFlow<AIGenerationState> = _aiDescriptionState.asStateFlow()
+    val aiTitleState: StateFlow<AIGenerationState> = _aiTitleState.asStateFlow()
 
     /**
      * Combines tag and search query into a single flow so that [flatMapLatest] below
@@ -181,13 +207,14 @@ class BookmarkViewModel(
         val service = autoTagService ?: return
         viewModelScope.launch {
             _autoTagState.value = AutoTagState.Loading
-            service.extractTags(url).fold(
-                onSuccess = { tags ->
-                    _autoTagState.value = if (tags.isEmpty()) {
-                        AutoTagState.Error("No tags could be extracted from this URL")
-                    } else {
-                        AutoTagState.Success(tags)
-                    }
+            service.fetchMetadata(url).fold(
+                onSuccess = { metadata ->
+                    _autoTagState.value = AutoTagState.Success(
+                        tags = metadata.tags,
+                        title = metadata.title,
+                        description = metadata.description,
+                        sourceUrl = url
+                    )
                 },
                 onFailure = { e ->
                     _autoTagState.value = AutoTagState.Error(e.message ?: "Failed to fetch tags")
@@ -198,6 +225,67 @@ class BookmarkViewModel(
 
     fun clearAutoTagState() {
         _autoTagState.value = AutoTagState.Idle
+    }
+
+    fun generateAiTags(url: String, title: String, description: String) {
+        val generator = aiTagGenerator ?: return
+        viewModelScope.launch {
+            _aiTagState.value = AIGenerationState.Loading
+            generator(url, title, description).fold(
+                onSuccess = { tags ->
+                    _aiTagState.value = if (tags.isEmpty()) {
+                        AIGenerationState.Error("AI could not generate tags for this bookmark")
+                    } else {
+                        AIGenerationState.TagsSuccess(tags, sourceUrl = url)
+                    }
+                },
+                onFailure = { e ->
+                    _aiTagState.value = AIGenerationState.Error(e.message ?: "AI tag generation failed")
+                }
+            )
+        }
+    }
+
+    fun generateAiDescription(url: String, title: String) {
+        val generator = aiDescriptionGenerator ?: return
+        viewModelScope.launch {
+            _aiDescriptionState.value = AIGenerationState.Loading
+            generator(url, title).fold(
+                onSuccess = { desc ->
+                    _aiDescriptionState.value = AIGenerationState.DescriptionSuccess(desc, sourceUrl = url)
+                },
+                onFailure = { e ->
+                    _aiDescriptionState.value = AIGenerationState.Error(e.message ?: "AI description generation failed")
+                }
+            )
+        }
+    }
+
+    fun generateAiTitle(url: String) {
+        val generator = aiTitleGenerator ?: return
+        viewModelScope.launch {
+            _aiTitleState.value = AIGenerationState.Loading
+            generator(url).fold(
+                onSuccess = { title ->
+                    _aiTitleState.value = AIGenerationState.TitleSuccess(title, sourceUrl = url)
+                },
+                onFailure = { e ->
+                    _aiTitleState.value = AIGenerationState.Error(e.message ?: "AI title generation failed")
+                }
+            )
+        }
+    }
+
+    fun clearAiTagState() {
+        _aiTagState.value = AIGenerationState.Idle
+    }
+
+    fun clearAiDescriptionState() {
+        _aiDescriptionState.value = AIGenerationState.Idle
+    }
+
+    fun clearAiTitleState() {
+        _aiTitleState.value = AIGenerationState.Idle
     }
 
     fun clearError() {

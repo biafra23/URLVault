@@ -88,6 +88,11 @@ class DesktopBookmarkRepository : BookmarkRepository, Closeable {
     override fun getAllTags(): Flow<List<String>> =
         _bookmarksFlow.map { bookmarks ->
             bookmarks.flatMap { it.tags }
+                .map { tag ->
+                    tag.trim()
+                        .replace(Regex("[\\\\\\[\\]\\\"']"), "")
+                        .trim()
+                }
                 .filter { it.isNotBlank() }
                 .distinct()
                 .sorted()
@@ -105,6 +110,13 @@ class DesktopBookmarkRepository : BookmarkRepository, Closeable {
 
     override suspend fun upsertBookmark(bookmark: Bookmark) {
         mutex.withLock {
+            // Ensure tags are clean before saving
+            val sanitizedTags = bookmark.tags.map { tag ->
+                tag.trim()
+                    .replace(Regex("[\\\\\\[\\]\\\"']"), "")
+                    .trim()
+            }.filter { it.isNotBlank() }
+
             connection.prepareStatement(
                 """
                 INSERT INTO bookmarks (id, url, title, description, tags, created_at, updated_at, is_favorite)
@@ -122,7 +134,7 @@ class DesktopBookmarkRepository : BookmarkRepository, Closeable {
                 ps.setString(2, bookmark.url)
                 ps.setString(3, bookmark.title)
                 ps.setString(4, bookmark.description)
-                ps.setString(5, json.encodeToString(bookmark.tags))
+                ps.setString(5, json.encodeToString(sanitizedTags))
                 ps.setLong(6, bookmark.createdAt)
                 ps.setLong(7, bookmark.updatedAt)
                 ps.setInt(8, if (bookmark.isFavorite) 1 else 0)
@@ -169,12 +181,20 @@ class DesktopBookmarkRepository : BookmarkRepository, Closeable {
             // Legacy comma-separated format
             tagsRaw.split(",").map { it.trim() }.filter { it.isNotBlank() }
         }
+
+        // Sanitize every tag to ensure no brackets or quotes remain from previous bugs
+        val sanitizedTags = tagsList.map { tag ->
+            tag.trim()
+                .replace(Regex("[\\\\\\[\\]\\\"']"), "")
+                .trim()
+        }.filter { it.isNotBlank() }
+
         return Bookmark(
             id = getString("id"),
             url = getString("url"),
             title = getString("title"),
             description = getString("description") ?: "",
-            tags = tagsList,
+            tags = sanitizedTags,
             createdAt = getLong("created_at"),
             updatedAt = getLong("updated_at"),
             isFavorite = getInt("is_favorite") == 1

@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.biafra23.anchorvault"
-        minSdk = 29
+        minSdk = 31
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersion
@@ -81,9 +81,13 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -142,4 +146,11 @@ dependencies {
 
     // Serialization
     implementation(libs.kotlinx.serialization.json)
+
+    // Ktor (HTTP client for web page content fetching)
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.android)
+
+    // ML Kit GenAI Prompt API (Gemini Nano on-device)
+    implementation(libs.mlkit.genai.prompt)
 }

@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.biafra23.anchorvault.sync.BitwardenCredentials
+import com.biafra23.anchorvault.sync.SettingsFieldHistory
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -50,9 +51,47 @@ class AndroidBitwardenPreferences(context: Context) {
         return prefs.getBoolean(KEY_AUTO_TAG_ENABLED, false)
     }
 
+    fun saveAiCoreEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AI_CORE_ENABLED, enabled).apply()
+    }
+
+    fun loadAiCoreEnabled(): Boolean {
+        return prefs.getBoolean(KEY_AI_CORE_ENABLED, false)
+    }
+
+    fun saveFieldHistory(history: SettingsFieldHistory) {
+        prefs.edit()
+            .putString(KEY_FIELD_HISTORY, json.encodeToString(history))
+            .apply()
+    }
+
+    fun loadFieldHistory(): SettingsFieldHistory {
+        val raw = prefs.getString(KEY_FIELD_HISTORY, null) ?: return SettingsFieldHistory()
+        return runCatching { json.decodeFromString<SettingsFieldHistory>(raw) }
+            .getOrDefault(SettingsFieldHistory())
+    }
+
+    fun addToFieldHistory(credentials: BitwardenCredentials) {
+        val existing = loadFieldHistory()
+        
+        // Strip suffixes to store clean base URLs for future suggestions
+        val serverBase = credentials.apiBaseUrl.removeSuffix("/api")
+            .removeSuffix("/identity")
+            .trimEnd('/')
+
+        val updated = SettingsFieldHistory(
+            serverUrls = (existing.serverUrls + serverBase).filter { it.isNotBlank() }.distinct(),
+            folderNames = (existing.folderNames + credentials.folderName).filter { it.isNotBlank() }.distinct(),
+            emails = (existing.emails + listOfNotNull(credentials.email)).filter { it.isNotBlank() }.distinct()
+        )
+        saveFieldHistory(updated)
+    }
+
     companion object {
         private const val PREFS_NAME = "anchorvault_bitwarden_encrypted"
         private const val KEY_CREDENTIALS = "credentials"
         private const val KEY_AUTO_TAG_ENABLED = "auto_tag_enabled"
+        private const val KEY_AI_CORE_ENABLED = "ai_core_enabled"
+        private const val KEY_FIELD_HISTORY = "field_history"
     }
 }

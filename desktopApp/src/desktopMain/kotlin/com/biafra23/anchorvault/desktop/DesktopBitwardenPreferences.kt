@@ -1,6 +1,8 @@
 package com.biafra23.anchorvault.desktop
 
+import com.biafra23.anchorvault.Logger
 import com.biafra23.anchorvault.sync.BitwardenCredentials
+import com.biafra23.anchorvault.sync.SettingsFieldHistory
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -44,7 +46,9 @@ class DesktopBitwardenPreferences {
     private val secretKey: SecretKey by lazy { keyBackend.loadOrCreateKey() }
 
     fun saveCredentials(credentials: BitwardenCredentials) {
-        val plaintext = json.encodeToString(credentials).toByteArray(Charsets.UTF_8)
+        // Exclude master password from disk storage on Desktop for security compliance
+        val secureCreds = credentials.copy(masterPassword = null)
+        val plaintext = json.encodeToString(secureCreds).toByteArray(Charsets.UTF_8)
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORM)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey, GCMParameterSpec(GCM_TAG_BITS, iv))
@@ -79,6 +83,34 @@ class DesktopBitwardenPreferences {
         return loadSettings()["autoTagEnabled"]?.toBooleanStrictOrNull() ?: false
     }
 
+    fun saveFieldHistory(history: SettingsFieldHistory) {
+        val settings = loadSettings().toMutableMap()
+        settings["fieldHistory"] = json.encodeToString(history)
+        settingsFile.writeText(json.encodeToString(settings))
+    }
+
+    fun loadFieldHistory(): SettingsFieldHistory {
+        val raw = loadSettings()["fieldHistory"] ?: return SettingsFieldHistory()
+        return runCatching { json.decodeFromString<SettingsFieldHistory>(raw) }
+            .getOrDefault(SettingsFieldHistory())
+    }
+
+    fun addToFieldHistory(credentials: BitwardenCredentials) {
+        val existing = loadFieldHistory()
+        
+        // Strip suffixes to store clean base URLs for future suggestions
+        val serverBase = credentials.apiBaseUrl.removeSuffix("/api")
+            .removeSuffix("/identity")
+            .trimEnd('/')
+
+        val updated = SettingsFieldHistory(
+            serverUrls = (existing.serverUrls + serverBase).filter { it.isNotBlank() }.distinct(),
+            folderNames = (existing.folderNames + credentials.folderName).filter { it.isNotBlank() }.distinct(),
+            emails = (existing.emails + listOfNotNull(credentials.email)).filter { it.isNotBlank() }.distinct()
+        )
+        saveFieldHistory(updated)
+    }
+
     private fun loadSettings(): Map<String, String> {
         if (!settingsFile.exists()) return emptyMap()
         return runCatching {
@@ -104,6 +136,7 @@ class DesktopBitwardenPreferences {
         private const val GCM_TAG_BITS = 128
         private const val SERVICE_NAME = "anchorvault"
         private const val ACCOUNT_NAME = "credentials-key"
+        private const val TAG = "DesktopBitwardenPreferences"
     }
 
     // region Key backend interface + implementations
@@ -234,6 +267,7 @@ private fun generateAesKey(): SecretKey {
 }
 
 private fun runCommand(vararg command: String): String? {
+    val TAG = "DesktopBitwardenPreferences"
     return try {
         val process = ProcessBuilder(*command)
             .redirectErrorStream(true)
@@ -242,12 +276,13 @@ private fun runCommand(vararg command: String): String? {
         val exitCode = process.waitFor()
         if (exitCode == 0) output else null
     } catch (e: Exception) {
-        System.err.println("runCommand failed [${command.joinToString(" ")}]: ${e.message}")
+        Logger.e(TAG, "runCommand failed [${command.joinToString(" ")}]: ${e.message}", e)
         null
     }
 }
 
 private fun runCommandWithStdin(input: String, vararg command: String): String? {
+    val TAG = "DesktopBitwardenPreferences"
     return try {
         val process = ProcessBuilder(*command)
             .redirectErrorStream(true)
@@ -257,7 +292,7 @@ private fun runCommandWithStdin(input: String, vararg command: String): String? 
         val exitCode = process.waitFor()
         if (exitCode == 0) output else null
     } catch (e: Exception) {
-        System.err.println("runCommandWithStdin failed [${command.joinToString(" ")}]: ${e.message}")
+        Logger.e(TAG, "runCommandWithStdin failed [${command.joinToString(" ")}]: ${e.message}", e)
         null
     }
 }

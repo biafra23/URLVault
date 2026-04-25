@@ -69,22 +69,19 @@ interface BitwardenSyncService {
 }
 
 /**
- * Credentials required to authenticate with the Bitwarden REST API.
+ * Credentials required to authenticate with the Bitwarden REST API
+ * using email + master password (password grant with prelogin KDF).
  *
  * @param apiBaseUrl     The base URL of the Bitwarden API (defaults to official cloud).
- * @param clientId       The OAuth 2.0 client ID obtained from Bitwarden settings.
- * @param clientSecret   The OAuth 2.0 client secret obtained from Bitwarden settings.
+ * @param identityUrl    The base URL of the Bitwarden Identity service.
+ * @param email          Account email.
+ * @param masterPassword Master password used to authenticate and derive vault encryption keys.
  * @param folderName     Name of the Bitwarden folder used to store AnchorVault bookmarks.
- * @param masterPassword Optional. When provided, vault data is encrypted client-side
- *                       using the Bitwarden protocol, making it visible in the web UI.
- * @param email          Required when [masterPassword] is set. Used as the PBKDF2 salt.
  */
 @Serializable
 data class BitwardenCredentials(
     val apiBaseUrl: String = "https://api.bitwarden.com",
     val identityUrl: String = "https://identity.bitwarden.com",
-    val clientId: String,
-    val clientSecret: String,
     val folderName: String = "AnchorVault",
     val masterPassword: String? = null,
     val email: String? = null

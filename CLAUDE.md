@@ -28,6 +28,10 @@ There are no tests in the project yet. The Android module is configured with `An
 
 ## Architecture
 
+### Security
+- Never store the master password in plaintext or predictable crypto. Only in hardware keystores secured by least biometry. On desktop ask for it on startup, and keep it in memory. But do not store it.
+- Allow input of master password from Bitwarden app on android, ios and desktop
+
 ### Module Structure
 
 - **`:shared`** — KMP library consumed by all platform modules. Contains all UI (Compose), ViewModels, domain models, repository interface, and Bitwarden sync logic in `commonMain`. Platform-specific source sets (`androidMain`, `desktopMain`, `iosMain`) provide Ktor engine implementations.
