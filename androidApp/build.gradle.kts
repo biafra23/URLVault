@@ -111,7 +111,7 @@ android {
     applicationVariants.all {
         val variant = this
         outputs.all {
-            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
+            (this as com.android.build.gradle.api.ApkVariantOutput).outputFileName =
                 "URLVault-${appVersion}-${gitShortHash}-${variant.buildType.name}.apk"
         }
     }
