@@ -88,7 +88,10 @@ class AndroidBitwardenPreferences(context: Context) {
     }
 
     companion object {
-        private const val PREFS_NAME = "urlvault_bitwarden_encrypted"
+        // EncryptedSharedPreferences file name kept as the original AnchorVault value so
+        // existing installs continue to read their stored Bitwarden credentials and field
+        // history after the URLVault rename.
+        private const val PREFS_NAME = "anchorvault_bitwarden_encrypted"
         private const val KEY_CREDENTIALS = "credentials"
         private const val KEY_AUTO_TAG_ENABLED = "auto_tag_enabled"
         private const val KEY_AI_CORE_ENABLED = "ai_core_enabled"
