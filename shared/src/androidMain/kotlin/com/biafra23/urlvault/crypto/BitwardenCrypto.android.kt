@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.crypto
+package com.biafra23.urlvault.crypto
 
 import java.security.SecureRandom
 import javax.crypto.Cipher

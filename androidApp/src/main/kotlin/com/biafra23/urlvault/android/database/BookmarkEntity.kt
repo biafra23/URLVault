@@ -1,8 +1,8 @@
-package com.biafra23.anchorvault.android.database
+package com.biafra23.urlvault.android.database
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import com.biafra23.anchorvault.model.Bookmark
+import com.biafra23.urlvault.model.Bookmark
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 

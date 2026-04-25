@@ -1,5 +1,5 @@
-package com.biafra23.anchorvault
+package com.biafra23.urlvault
 
 actual object BuildConfig {
-    actual val DEBUG: Boolean = System.getProperty("anchorvault.debug") == "true"
+    actual val DEBUG: Boolean = System.getProperty("urlvault.debug") == "true"
 }

@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.desktop
+package com.biafra23.urlvault.desktop
 
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -9,14 +9,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import com.biafra23.anchorvault.autotag.createAutoTagService
-import com.biafra23.anchorvault.model.Bookmark
-import com.biafra23.anchorvault.sync.createBitwardenSyncService
-import com.biafra23.anchorvault.ui.AddEditBookmarkScreen
-import com.biafra23.anchorvault.ui.BookmarkListScreen
-import com.biafra23.anchorvault.ui.SettingsScreen
-import com.biafra23.anchorvault.ui.theme.AnchorVaultTheme
-import com.biafra23.anchorvault.viewmodel.BookmarkViewModel
+import com.biafra23.urlvault.autotag.createAutoTagService
+import com.biafra23.urlvault.model.Bookmark
+import com.biafra23.urlvault.sync.createBitwardenSyncService
+import com.biafra23.urlvault.ui.AddEditBookmarkScreen
+import com.biafra23.urlvault.ui.BookmarkListScreen
+import com.biafra23.urlvault.ui.SettingsScreen
+import com.biafra23.urlvault.ui.theme.URLVaultTheme
+import com.biafra23.urlvault.viewmodel.BookmarkViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import kotlinx.coroutines.runBlocking
@@ -34,14 +34,14 @@ fun main() = application {
     val prefs = remember { DesktopBitwardenPreferences() }
     val repository = remember { DesktopBookmarkRepository() }
     val syncService = remember {
-        com.biafra23.anchorvault.sync.KtorBitwardenSyncService(httpClient).also { service ->
+        com.biafra23.urlvault.sync.KtorBitwardenSyncService(httpClient).also { service ->
             val saved = prefs.loadCredentials()
             if (saved != null) {
                 runBlocking { service.configure(saved) }
             }
         }
     }
-    val autoTagService = remember { com.biafra23.anchorvault.autotag.AutoTagService(httpClient) }
+    val autoTagService = remember { com.biafra23.urlvault.autotag.AutoTagService(httpClient) }
     val viewModel = remember { BookmarkViewModel(repository, syncService, autoTagService) }
 
     Window(
@@ -52,10 +52,10 @@ fun main() = application {
             httpClient.close()
             exitApplication()
         },
-        title = "AnchorVault",
+        title = "URLVault",
         state = rememberWindowState(width = 1000.dp, height = 700.dp)
     ) {
-        AnchorVaultTheme {
+        URLVaultTheme {
             var currentScreen by remember { mutableStateOf<DesktopScreen>(DesktopScreen.List) }
             var autoTagEnabled by remember { mutableStateOf(prefs.loadAutoTagEnabled()) }
 

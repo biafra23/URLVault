@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.ui
+package com.biafra23.urlvault.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -45,9 +45,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
-import com.biafra23.anchorvault.sync.BitwardenCredentials
-import com.biafra23.anchorvault.sync.BitwardenSyncService
-import com.biafra23.anchorvault.sync.SettingsFieldHistory
+import com.biafra23.urlvault.sync.BitwardenCredentials
+import com.biafra23.urlvault.sync.BitwardenSyncService
+import com.biafra23.urlvault.sync.SettingsFieldHistory
 import kotlinx.coroutines.launch
 
 /**
@@ -77,7 +77,7 @@ fun SettingsScreen(
                 ?: ""
         )
     }
-    var folderName by remember { mutableStateOf(currentCredentials?.folderName ?: "AnchorVault") }
+    var folderName by remember { mutableStateOf(currentCredentials?.folderName ?: "URLVault") }
     var useSelfHosted by remember {
         mutableStateOf(
             currentCredentials != null && currentCredentials.apiBaseUrl != "https://api.bitwarden.com"
@@ -203,7 +203,7 @@ fun SettingsScreen(
                 value = folderName,
                 onValueChange = { folderName = it },
                 label = "Vault Folder Name",
-                placeholder = "AnchorVault",
+                placeholder = "URLVault",
                 suggestions = fieldHistory.folderNames,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -252,7 +252,7 @@ fun SettingsScreen(
                     val credentials = BitwardenCredentials(
                         apiBaseUrl = effectiveApiBaseUrl,
                         identityUrl = effectiveIdentityUrl,
-                        folderName = folderName.trim().ifBlank { "AnchorVault" },
+                        folderName = folderName.trim().ifBlank { "URLVault" },
                         masterPassword = masterPassword,
                         email = email.trim().lowercase()
                     )
@@ -366,7 +366,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary
             )
             Text(
-                text = "AnchorVault — secure bookmark storage with Bitwarden sync.",
+                text = "URLVault — secure bookmark storage with Bitwarden sync.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

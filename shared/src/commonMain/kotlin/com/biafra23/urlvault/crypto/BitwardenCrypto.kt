@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.crypto
+package com.biafra23.urlvault.crypto
 
 /**
  * Platform-specific cryptographic primitives needed for the Bitwarden encryption protocol.

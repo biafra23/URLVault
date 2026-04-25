@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.android.database
+package com.biafra23.urlvault.android.database
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
@@ -20,8 +20,8 @@ import javax.crypto.spec.GCMParameterSpec
 object DatabaseKeyManager {
 
     private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
-    private const val KEY_ALIAS = "AnchorVaultDbKey"
-    private const val PREFS_NAME = "anchorvault_prefs"
+    private const val KEY_ALIAS = "URLVaultDbKey"
+    private const val PREFS_NAME = "urlvault_prefs"
     private const val PREF_ENCRYPTED_KEY = "encrypted_db_key"
     private const val PREF_IV = "db_key_iv"
     private const val GCM_TAG_LENGTH = 128

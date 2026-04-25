@@ -1,10 +1,10 @@
-package com.biafra23.anchorvault.sync
+package com.biafra23.urlvault.sync
 
-import com.biafra23.anchorvault.Logger
-import com.biafra23.anchorvault.crypto.BitwardenEncryption
-import com.biafra23.anchorvault.crypto.CryptoProvider
-import com.biafra23.anchorvault.crypto.base64Encode
-import com.biafra23.anchorvault.model.Bookmark
+import com.biafra23.urlvault.Logger
+import com.biafra23.urlvault.crypto.BitwardenEncryption
+import com.biafra23.urlvault.crypto.CryptoProvider
+import com.biafra23.urlvault.crypto.base64Encode
+import com.biafra23.urlvault.model.Bookmark
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -50,7 +50,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
     companion object {
         private const val TAG = "KtorBitwardenSyncService"
         // Stable device identifier so Bitwarden recognises this app across sessions.
-        // This is not a secret — it simply identifies "AnchorVault" as a registered device.
+        // This is not a secret — it simply identifies "URLVault" as a registered device.
         private const val DEVICE_IDENTIFIER = "b3a1c9d4-7e2f-4a8b-9c0d-1e2f3a4b5c6d"
 
         private fun log(message: String) = Logger.d(TAG, message)
@@ -303,7 +303,7 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                 append("password", hashedPassword)
                 append("deviceType", "21")
                 append("deviceIdentifier", DEVICE_IDENTIFIER)
-                append("deviceName", "AnchorVault")
+                append("deviceName", "URLVault")
             }
         )
 

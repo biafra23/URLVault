@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.model
+package com.biafra23.urlvault.model
 
 import kotlinx.serialization.Serializable
 

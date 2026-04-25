@@ -1,8 +1,8 @@
-package com.biafra23.anchorvault.desktop
+package com.biafra23.urlvault.desktop
 
-import com.biafra23.anchorvault.Logger
-import com.biafra23.anchorvault.sync.BitwardenCredentials
-import com.biafra23.anchorvault.sync.SettingsFieldHistory
+import com.biafra23.urlvault.Logger
+import com.biafra23.urlvault.sync.BitwardenCredentials
+import com.biafra23.urlvault.sync.SettingsFieldHistory
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -29,7 +29,7 @@ class DesktopBitwardenPreferences {
 
     private val appDir: File = run {
         val home = System.getProperty("user.home")
-        val dir = File("$home/.anchorvault")
+        val dir = File("$home/.urlvault")
         dir.mkdirs()
         dir
     }
@@ -134,7 +134,7 @@ class DesktopBitwardenPreferences {
     companion object {
         private const val AES_GCM_TRANSFORM = "AES/GCM/NoPadding"
         private const val GCM_TAG_BITS = 128
-        private const val SERVICE_NAME = "anchorvault"
+        private const val SERVICE_NAME = "urlvault"
         private const val ACCOUNT_NAME = "credentials-key"
         private const val TAG = "DesktopBitwardenPreferences"
     }
@@ -204,7 +204,7 @@ class DesktopBitwardenPreferences {
             val stored = runCommandWithStdin(
                 input = b64,
                 "secret-tool", "store",
-                "--label=AnchorVault Credentials Key",
+                "--label=URLVault Credentials Key",
                 "application", SERVICE_NAME,
                 "type", ACCOUNT_NAME
             )
@@ -225,8 +225,8 @@ class DesktopBitwardenPreferences {
             // the raw PKCS12 file cannot be brute-forced trivially.
             val user = System.getProperty("user.name") ?: "unknown"
             val home = System.getProperty("user.home") ?: "/tmp"
-            val base = "AnchorVault:$user:$home"
-            val salt = "AnchorVault-PKCS12-salt".toByteArray()
+            val base = "URLVault:$user:$home"
+            val salt = "URLVault-PKCS12-salt".toByteArray()
             val spec = javax.crypto.spec.PBEKeySpec(base.toCharArray(), salt, 100_000, 256)
             val skf = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
             java.util.Base64.getEncoder().encodeToString(skf.generateSecret(spec).encoded).toCharArray()
@@ -238,7 +238,7 @@ class DesktopBitwardenPreferences {
             val keyStore = KeyStore.getInstance("PKCS12")
             if (keystoreFile.exists()) {
                 keystoreFile.inputStream().use { keyStore.load(it, keystorePassword) }
-                val entry = keyStore.getEntry("anchorvault_key", KeyStore.PasswordProtection(keystorePassword))
+                val entry = keyStore.getEntry("urlvault_key", KeyStore.PasswordProtection(keystorePassword))
                 if (entry is KeyStore.SecretKeyEntry) {
                     return entry.secretKey
                 }
@@ -246,7 +246,7 @@ class DesktopBitwardenPreferences {
             val key = generateAesKey()
             keyStore.load(null, keystorePassword)
             keyStore.setEntry(
-                "anchorvault_key",
+                "urlvault_key",
                 KeyStore.SecretKeyEntry(key),
                 KeyStore.PasswordProtection(keystorePassword)
             )

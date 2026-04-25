@@ -1,11 +1,11 @@
-package com.biafra23.anchorvault.android.sync
+package com.biafra23.urlvault.android.sync
 
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import com.biafra23.anchorvault.sync.BitwardenCredentials
-import com.biafra23.anchorvault.sync.SettingsFieldHistory
+import com.biafra23.urlvault.sync.BitwardenCredentials
+import com.biafra23.urlvault.sync.SettingsFieldHistory
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -88,7 +88,7 @@ class AndroidBitwardenPreferences(context: Context) {
     }
 
     companion object {
-        private const val PREFS_NAME = "anchorvault_bitwarden_encrypted"
+        private const val PREFS_NAME = "urlvault_bitwarden_encrypted"
         private const val KEY_CREDENTIALS = "credentials"
         private const val KEY_AUTO_TAG_ENABLED = "auto_tag_enabled"
         private const val KEY_AI_CORE_ENABLED = "ai_core_enabled"

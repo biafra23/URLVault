@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.android
+package com.biafra23.urlvault.android
 
 import android.content.Intent
 import android.os.Bundle
@@ -10,16 +10,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.biafra23.anchorvault.android.ai.AICoreService
-import com.biafra23.anchorvault.android.ai.AICoreStatus
-import com.biafra23.anchorvault.android.sync.AndroidBitwardenPreferences
-import com.biafra23.anchorvault.model.Bookmark
-import com.biafra23.anchorvault.sync.BitwardenSyncService
-import com.biafra23.anchorvault.ui.AddEditBookmarkScreen
-import com.biafra23.anchorvault.ui.BookmarkListScreen
-import com.biafra23.anchorvault.ui.SettingsScreen
-import com.biafra23.anchorvault.ui.theme.AnchorVaultTheme
-import com.biafra23.anchorvault.viewmodel.BookmarkViewModel
+import com.biafra23.urlvault.android.ai.AICoreService
+import com.biafra23.urlvault.android.ai.AICoreStatus
+import com.biafra23.urlvault.android.sync.AndroidBitwardenPreferences
+import com.biafra23.urlvault.model.Bookmark
+import com.biafra23.urlvault.sync.BitwardenSyncService
+import com.biafra23.urlvault.ui.AddEditBookmarkScreen
+import com.biafra23.urlvault.ui.BookmarkListScreen
+import com.biafra23.urlvault.ui.SettingsScreen
+import com.biafra23.urlvault.ui.theme.URLVaultTheme
+import com.biafra23.urlvault.viewmodel.BookmarkViewModel
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
         handleShareIntent(intent)
 
         setContent {
-            AnchorVaultTheme {
+            URLVaultTheme {
                 var autoTagEnabled by mutableStateOf(bitwardenPrefs.loadAutoTagEnabled())
                 var aiCoreEnabled by mutableStateOf(bitwardenPrefs.loadAiCoreEnabled())
                 val aiCoreStatus by aiCoreService.status.collectAsState()

@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault
+package com.biafra23.urlvault
 
 actual object Logger {
     actual fun v(tag: String, message: String) {

@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.android.ai
+package com.biafra23.urlvault.android.ai
 
 import android.util.Log
 import io.ktor.client.HttpClient
@@ -232,12 +232,12 @@ class AICoreService(httpClient: HttpClient) {
             }
             Log.v(TAG, "AI Prompt prepared for tag generation (titleIncluded=${title.isNotBlank()}, descriptionIncluded=${description.isNotBlank()}, pageSummaryIncluded=${pageSummary.isNotBlank()}, length=${prompt.length})")
             
-            if (com.biafra23.anchorvault.android.BuildConfig.DEBUG) {
+            if (com.biafra23.urlvault.android.BuildConfig.DEBUG) {
                 runBenchmarking(prompt)
             }
 
             val text = runInference(prompt)
-            if (com.biafra23.anchorvault.android.BuildConfig.DEBUG) {
+            if (com.biafra23.urlvault.android.BuildConfig.DEBUG) {
                 Log.d(TAG, "AI Response: $text")
             }
             
@@ -282,7 +282,7 @@ class AICoreService(httpClient: HttpClient) {
                 }
             }
             
-            if (com.biafra23.anchorvault.android.BuildConfig.DEBUG) {
+            if (com.biafra23.urlvault.android.BuildConfig.DEBUG) {
                 runBenchmarking(prompt)
             }
 

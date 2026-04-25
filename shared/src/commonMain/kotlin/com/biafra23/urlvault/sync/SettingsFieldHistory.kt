@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.sync
+package com.biafra23.urlvault.sync
 
 import kotlinx.serialization.Serializable
 

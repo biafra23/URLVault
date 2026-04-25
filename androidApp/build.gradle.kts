@@ -17,11 +17,11 @@ val appVersion: String = project.findProperty("appVersion")?.toString() ?: "1.0.
 val appVersionCode: Int = project.findProperty("appVersionCode")?.toString()?.toIntOrNull() ?: 1
 
 android {
-    namespace = "com.biafra23.anchorvault.android"
+    namespace = "com.biafra23.urlvault.android"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.biafra23.anchorvault"
+        applicationId = "com.biafra23.urlvault"
         minSdk = 31
         targetSdk = 36
         versionCode = appVersionCode
@@ -46,7 +46,7 @@ android {
             // is never placed in the cached build directory, and is deleted on JVM exit.
             val keystoreB64 = System.getenv("ANDROID_KEYSTORE_BASE64")
             if (keystoreB64 != null) {
-                val keystoreFile = Files.createTempFile("anchorvault-", ".keystore").toFile()
+                val keystoreFile = Files.createTempFile("urlvault-", ".keystore").toFile()
                 keystoreFile.writeBytes(Base64.getDecoder().decode(keystoreB64))
                 keystoreFile.deleteOnExit()
                 storeFile = keystoreFile

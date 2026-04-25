@@ -1,6 +1,6 @@
-package com.biafra23.anchorvault.sync
+package com.biafra23.urlvault.sync
 
-import com.biafra23.anchorvault.model.Bookmark
+import com.biafra23.urlvault.model.Bookmark
 import kotlinx.serialization.Serializable
 
 /**
@@ -76,13 +76,13 @@ interface BitwardenSyncService {
  * @param identityUrl    The base URL of the Bitwarden Identity service.
  * @param email          Account email.
  * @param masterPassword Master password used to authenticate and derive vault encryption keys.
- * @param folderName     Name of the Bitwarden folder used to store AnchorVault bookmarks.
+ * @param folderName     Name of the Bitwarden folder used to store URLVault bookmarks.
  */
 @Serializable
 data class BitwardenCredentials(
     val apiBaseUrl: String = "https://api.bitwarden.com",
     val identityUrl: String = "https://identity.bitwarden.com",
-    val folderName: String = "AnchorVault",
+    val folderName: String = "URLVault",
     val masterPassword: String? = null,
     val email: String? = null
 )

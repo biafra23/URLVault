@@ -33,24 +33,24 @@ kotlin {
 
 compose.desktop {
     application {
-        mainClass = "com.biafra23.anchorvault.desktop.MainKt"
+        mainClass = "com.biafra23.urlvault.desktop.MainKt"
         from(kotlin.targets["desktop"])
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             modules("java.sql", "java.net.http", "java.logging", "java.naming", "jdk.crypto.ec", "jdk.unsupported")
-            packageName = "AnchorVault"
+            packageName = "URLVault"
             packageVersion = appVersion
             description = "Secure bookmark storage with Bitwarden sync"
-            copyright = "© 2024 AnchorVault"
+            copyright = "© 2024 URLVault"
 
             macOS {
                 iconFile.set(project.file("src/desktopMain/resources/icon.icns"))
-                bundleID = "com.biafra23.anchorvault"
+                bundleID = "com.biafra23.urlvault"
             }
             windows {
                 iconFile.set(project.file("src/desktopMain/resources/icon.ico"))
-                menuGroup = "AnchorVault"
+                menuGroup = "URLVault"
                 upgradeUuid = "e0f7a5e3-4d2b-4b8e-9c1a-5f6d7e8a9b0c"
             }
             linux {

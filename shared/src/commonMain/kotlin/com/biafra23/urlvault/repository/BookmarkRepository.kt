@@ -1,6 +1,6 @@
-package com.biafra23.anchorvault.repository
+package com.biafra23.urlvault.repository
 
-import com.biafra23.anchorvault.model.Bookmark
+import com.biafra23.urlvault.model.Bookmark
 import kotlinx.coroutines.flow.Flow
 
 /**

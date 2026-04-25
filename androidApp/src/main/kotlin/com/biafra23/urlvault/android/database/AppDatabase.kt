@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.android.database
+package com.biafra23.urlvault.android.database
 
 import android.content.Context
 import androidx.room.Database
@@ -18,7 +18,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun bookmarkDao(): BookmarkDao
 
     companion object {
-        private const val DATABASE_NAME = "anchorvault.db"
+        private const val DATABASE_NAME = "urlvault.db"
 
         @Volatile
         private var INSTANCE: AppDatabase? = null

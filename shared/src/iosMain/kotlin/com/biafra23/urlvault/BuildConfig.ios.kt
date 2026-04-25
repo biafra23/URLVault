@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault
+package com.biafra23.urlvault
 
 import platform.Foundation.NSBundle
 

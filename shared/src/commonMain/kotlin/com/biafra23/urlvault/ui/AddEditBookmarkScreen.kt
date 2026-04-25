@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.ui
+package com.biafra23.urlvault.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -39,11 +39,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
-import com.biafra23.anchorvault.BuildConfig
-import com.biafra23.anchorvault.Logger
-import com.biafra23.anchorvault.model.Bookmark
-import com.biafra23.anchorvault.viewmodel.AIGenerationState
-import com.biafra23.anchorvault.viewmodel.AutoTagState
+import com.biafra23.urlvault.BuildConfig
+import com.biafra23.urlvault.Logger
+import com.biafra23.urlvault.model.Bookmark
+import com.biafra23.urlvault.viewmodel.AIGenerationState
+import com.biafra23.urlvault.viewmodel.AutoTagState
 
 /**
  * Screen for adding or editing a bookmark.

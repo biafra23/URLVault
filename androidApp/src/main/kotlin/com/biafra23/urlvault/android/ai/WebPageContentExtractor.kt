@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.android.ai
+package com.biafra23.urlvault.android.ai
 
 import android.util.Log
 import io.ktor.client.HttpClient
@@ -55,7 +55,7 @@ class WebPageContentExtractor(private val client: HttpClient) {
         return try {
             Log.d(TAG, "Fetching content from: $url")
             val response = client.get(url) {
-                header("User-Agent", "AnchorVault/1.0 (Bookmark Manager)")
+                header("User-Agent", "URLVault/1.0 (Bookmark Manager)")
                 header("Accept", "text/html")
             }
 
@@ -65,7 +65,7 @@ class WebPageContentExtractor(private val client: HttpClient) {
             }
 
             val html = response.bodyAsText()
-            if (com.biafra23.anchorvault.android.BuildConfig.DEBUG) {
+            if (com.biafra23.urlvault.android.BuildConfig.DEBUG) {
                 Log.v(TAG, "HTML content length: ${html.length}")
             }
             parseHtml(html)

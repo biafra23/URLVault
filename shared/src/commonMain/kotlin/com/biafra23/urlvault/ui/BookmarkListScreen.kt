@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.ui
+package com.biafra23.urlvault.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
@@ -51,10 +51,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.biafra23.anchorvault.model.Bookmark
-import com.biafra23.anchorvault.viewmodel.BookmarkListUiState
-import com.biafra23.anchorvault.viewmodel.BookmarkViewModel
-import com.biafra23.anchorvault.viewmodel.SyncStatus
+import com.biafra23.urlvault.model.Bookmark
+import com.biafra23.urlvault.viewmodel.BookmarkListUiState
+import com.biafra23.urlvault.viewmodel.BookmarkViewModel
+import com.biafra23.urlvault.viewmodel.SyncStatus
 
 /**
  * Main screen that shows the list of bookmarks with tag filtering and search.
@@ -98,7 +98,7 @@ fun BookmarkListScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("AnchorVault") },
+                title = { Text("URLVault") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,

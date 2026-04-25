@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.crypto
+package com.biafra23.urlvault.crypto
 
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.UByteVar

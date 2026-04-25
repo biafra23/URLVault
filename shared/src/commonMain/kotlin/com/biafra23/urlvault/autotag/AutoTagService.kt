@@ -1,7 +1,7 @@
-package com.biafra23.anchorvault.autotag
+package com.biafra23.urlvault.autotag
 
-import com.biafra23.anchorvault.BuildConfig
-import com.biafra23.anchorvault.Logger
+import com.biafra23.urlvault.BuildConfig
+import com.biafra23.urlvault.Logger
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
@@ -28,7 +28,7 @@ class AutoTagService(private val httpClient: HttpClient) {
         return runCatching {
             Logger.d(TAG, "Fetching metadata for $url")
             val html = httpClient.get(url) {
-                header("User-Agent", "AnchorVault/1.0 (Bookmark Manager)")
+                header("User-Agent", "URLVault/1.0 (Bookmark Manager)")
             }.bodyAsText()
             Logger.d(TAG, "Received ${html.length} bytes of HTML")
 

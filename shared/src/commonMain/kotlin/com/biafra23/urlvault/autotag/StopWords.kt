@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.autotag
+package com.biafra23.urlvault.autotag
 
 internal val STOP_WORDS: Set<String> = setOf(
     "a", "about", "above", "after", "again", "against", "all", "also", "am", "an",

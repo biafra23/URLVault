@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault
+package com.biafra23.urlvault
 
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -6,15 +6,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.window.ComposeUIViewController
-import com.biafra23.anchorvault.autotag.AutoTagService
-import com.biafra23.anchorvault.database.IosBookmarkRepository
-import com.biafra23.anchorvault.model.Bookmark
-import com.biafra23.anchorvault.sync.KtorBitwardenSyncService
-import com.biafra23.anchorvault.ui.AddEditBookmarkScreen
-import com.biafra23.anchorvault.ui.BookmarkListScreen
-import com.biafra23.anchorvault.ui.SettingsScreen
-import com.biafra23.anchorvault.ui.theme.AnchorVaultTheme
-import com.biafra23.anchorvault.viewmodel.BookmarkViewModel
+import com.biafra23.urlvault.autotag.AutoTagService
+import com.biafra23.urlvault.database.IosBookmarkRepository
+import com.biafra23.urlvault.model.Bookmark
+import com.biafra23.urlvault.sync.KtorBitwardenSyncService
+import com.biafra23.urlvault.ui.AddEditBookmarkScreen
+import com.biafra23.urlvault.ui.BookmarkListScreen
+import com.biafra23.urlvault.ui.SettingsScreen
+import com.biafra23.urlvault.ui.theme.URLVaultTheme
+import com.biafra23.urlvault.viewmodel.BookmarkViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import platform.UIKit.UIViewController
@@ -32,7 +32,7 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
     val autoTagService = remember { AutoTagService(httpClient) }
     val viewModel = remember { BookmarkViewModel(repository, syncService, autoTagService) }
 
-    AnchorVaultTheme {
+    URLVaultTheme {
         var currentScreen by remember { mutableStateOf<IosScreen>(IosScreen.List) }
         var autoTagEnabled by remember { mutableStateOf(false) }
 

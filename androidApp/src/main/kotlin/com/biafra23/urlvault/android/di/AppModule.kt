@@ -1,16 +1,16 @@
-package com.biafra23.anchorvault.android.di
+package com.biafra23.urlvault.android.di
 
 import android.content.Context
-import com.biafra23.anchorvault.android.ai.AICoreService
-import com.biafra23.anchorvault.android.database.AppDatabase
-import com.biafra23.anchorvault.android.database.DatabaseKeyManager
-import com.biafra23.anchorvault.android.database.RoomBookmarkRepository
-import com.biafra23.anchorvault.android.sync.AndroidBitwardenPreferences
-import com.biafra23.anchorvault.autotag.AutoTagService
-import com.biafra23.anchorvault.repository.BookmarkRepository
-import com.biafra23.anchorvault.sync.BitwardenSyncService
-import com.biafra23.anchorvault.sync.KtorBitwardenSyncService
-import com.biafra23.anchorvault.viewmodel.BookmarkViewModel
+import com.biafra23.urlvault.android.ai.AICoreService
+import com.biafra23.urlvault.android.database.AppDatabase
+import com.biafra23.urlvault.android.database.DatabaseKeyManager
+import com.biafra23.urlvault.android.database.RoomBookmarkRepository
+import com.biafra23.urlvault.android.sync.AndroidBitwardenPreferences
+import com.biafra23.urlvault.autotag.AutoTagService
+import com.biafra23.urlvault.repository.BookmarkRepository
+import com.biafra23.urlvault.sync.BitwardenSyncService
+import com.biafra23.urlvault.sync.KtorBitwardenSyncService
+import com.biafra23.urlvault.viewmodel.BookmarkViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import kotlinx.coroutines.CoroutineScope

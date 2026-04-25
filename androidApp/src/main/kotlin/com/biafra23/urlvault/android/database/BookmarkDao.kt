@@ -1,4 +1,4 @@
-package com.biafra23.anchorvault.android.database
+package com.biafra23.urlvault.android.database
 
 import androidx.room.Dao
 import androidx.room.Insert

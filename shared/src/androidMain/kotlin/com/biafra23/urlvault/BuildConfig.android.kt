@@ -1,5 +1,5 @@
-package com.biafra23.anchorvault
+package com.biafra23.urlvault
 
 actual object BuildConfig {
-    actual val DEBUG: Boolean = com.biafra23.anchorvault.shared.BuildConfig.DEBUG
+    actual val DEBUG: Boolean = com.biafra23.urlvault.shared.BuildConfig.DEBUG
 }

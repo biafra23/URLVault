@@ -1,12 +1,12 @@
-package com.biafra23.anchorvault.viewmodel
+package com.biafra23.urlvault.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.biafra23.anchorvault.autotag.AutoTagService
-import com.biafra23.anchorvault.model.Bookmark
-import com.biafra23.anchorvault.repository.BookmarkRepository
-import com.biafra23.anchorvault.sync.BitwardenCredentials
-import com.biafra23.anchorvault.sync.BitwardenSyncService
+import com.biafra23.urlvault.autotag.AutoTagService
+import com.biafra23.urlvault.model.Bookmark
+import com.biafra23.urlvault.repository.BookmarkRepository
+import com.biafra23.urlvault.sync.BitwardenCredentials
+import com.biafra23.urlvault.sync.BitwardenSyncService
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted

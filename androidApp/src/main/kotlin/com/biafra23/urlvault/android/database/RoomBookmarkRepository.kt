@@ -1,7 +1,7 @@
-package com.biafra23.anchorvault.android.database
+package com.biafra23.urlvault.android.database
 
-import com.biafra23.anchorvault.model.Bookmark
-import com.biafra23.anchorvault.repository.BookmarkRepository
+import com.biafra23.urlvault.model.Bookmark
+import com.biafra23.urlvault.repository.BookmarkRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
