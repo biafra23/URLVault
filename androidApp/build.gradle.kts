@@ -16,6 +16,15 @@ plugins {
 val appVersion: String = project.findProperty("appVersion")?.toString() ?: "1.0.0"
 val appVersionCode: Int = project.findProperty("appVersionCode")?.toString()?.toIntOrNull() ?: 1
 
+// Short git commit hash, baked into artifact filenames. Falls back to "nogit" outside a checkout.
+val gitShortHash: String = runCatching {
+    val process = ProcessBuilder("git", "rev-parse", "--short", "HEAD")
+        .directory(rootDir)
+        .redirectErrorStream(true)
+        .start()
+    process.inputStream.bufferedReader().readText().trim().also { process.waitFor() }
+}.getOrNull()?.takeIf { it.isNotBlank() } ?: "nogit"
+
 android {
     namespace = "com.biafra23.urlvault.android"
     compileSdk = 36
@@ -97,6 +106,14 @@ android {
         disable += "NullSafeMutableLiveData"
         abortOnError = false
         checkDependencies = false
+    }
+
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
+                "URLVault-${appVersion}-${gitShortHash}-${variant.buildType.name}.apk"
+        }
     }
 }
 

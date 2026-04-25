@@ -54,20 +54,11 @@ jobs:
             -PappVersion=${{ steps.version.outputs.version }} \
             -PappVersionCode=${{ steps.version.outputs.versionCode }}
 
-      - name: Rename APK
-        run: |
-          VER="${{ steps.version.outputs.version }}"
-          DST="AnchorVault-${VER}.apk"
-          # find the single release APK and rename it (handles both signed and unsigned output names)
-          find androidApp/build/outputs/apk/release -name "*.apk" -print0 \
-            | head -z -n 1 \
-            | xargs -0 -I{} mv {} "$DST"
-
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-release
-          path: AnchorVault-*.apk
+          path: androidApp/build/outputs/apk/release/URLVault-*.apk
 
   # ─────────────────────────────────────────────
   # Desktop – Linux (.deb)
@@ -197,14 +188,14 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "AnchorVault ${{ github.ref_name }}"
+          name: "URLVault ${{ github.ref_name }}"
           body: |
-            ## AnchorVault ${{ github.ref_name }}
+            ## URLVault ${{ github.ref_name }}
 
             ### Downloads
             | Platform | File |
             |---|---|
-            | Android | `AnchorVault-*.apk` |
+            | Android | `URLVault-*.apk` |
             | Linux | `*.deb` |
             | Windows | `*.msi` |
             | macOS | `*.dmg` |
