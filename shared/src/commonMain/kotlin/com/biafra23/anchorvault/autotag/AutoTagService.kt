@@ -32,8 +32,8 @@ class AutoTagService(private val httpClient: HttpClient) {
             }.bodyAsText()
             Logger.d(TAG, "Received ${html.length} bytes of HTML")
 
-            // Limit processing to first 100KB to avoid memory issues on huge pages
-            val trimmedHtml = if (html.length > 100_000) html.take(100_000) else html
+            // Limit processing to first 1MB to avoid memory issues on huge pages
+            val trimmedHtml = if (html.length > 1_000_000) html.take(1_000_000) else html
 
             val textParts = mutableListOf<String>()
 

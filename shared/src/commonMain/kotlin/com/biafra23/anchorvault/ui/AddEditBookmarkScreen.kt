@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
+import com.biafra23.anchorvault.BuildConfig
 import com.biafra23.anchorvault.Logger
 import com.biafra23.anchorvault.model.Bookmark
 import com.biafra23.anchorvault.viewmodel.AIGenerationState
@@ -94,6 +95,9 @@ fun AddEditBookmarkScreen(
     var aiDescriptionError by remember { mutableStateOf<String?>(null) }
     var aiTitleError by remember { mutableStateOf<String?>(null) }
 
+    // DEBUG: track legacy tags for comparison
+    val legacyTags = remember { mutableStateListOf<String>() }
+
     val TAG = "AddEditBookmarkScreen"
 
     // Track which URL we've already triggered AI for, to prevent re-triggering
@@ -133,6 +137,13 @@ fun AddEditBookmarkScreen(
                 aiDescriptionError = null
                 onAiGenerateDescription(targetUrl, title)
             }
+
+            // In DEBUG mode, also trigger legacy extraction for comparison
+            if (BuildConfig.DEBUG && onAutoTag != null) {
+                Logger.d(TAG, "Triggering legacy metadata extraction (DEBUG comparison)")
+                autoTagError = null
+                onAutoTag(targetUrl)
+            }
         } else if (onAutoTag != null) {
             // Fallback to legacy extraction (even if autoTagEnabled is false,
             // we'll use it for title/description if they are blank).
@@ -160,8 +171,17 @@ fun AddEditBookmarkScreen(
                 // Apply tags if we found any (respect toggle or manual trigger)
                 if (autoTagState.tags.isNotEmpty()) {
                     Logger.d(TAG, "Applying legacy tags: ${autoTagState.tags}")
-                    autoTagState.tags.forEach { tag ->
-                        if (!selectedTags.contains(tag)) selectedTags.add(tag)
+                    
+                    if (BuildConfig.DEBUG) {
+                        legacyTags.clear()
+                        legacyTags.addAll(autoTagState.tags)
+                    }
+
+                    // Only automatically add legacy tags to the main list if AI is NOT handling it
+                    if (!aiCoreEnabled) {
+                        autoTagState.tags.forEach { tag ->
+                            if (!selectedTags.contains(tag)) selectedTags.add(tag)
+                        }
                     }
                 } else {
                     Logger.d(TAG, "No legacy tags found to apply")
@@ -343,6 +363,7 @@ fun AddEditBookmarkScreen(
                             isFavorite = existingBookmark?.isFavorite ?: false
                             selectedTags.clear()
                             existingBookmark?.tags?.forEach(selectedTags::add)
+                            legacyTags.clear()
                             newTagInput = ""
                             urlError = null
                             autoTagError = null
@@ -578,6 +599,39 @@ fun AddEditBookmarkScreen(
                                 )
                             }
                         )
+                    }
+                }
+            }
+
+            // DEBUG: Show legacy tags for comparison
+            if (BuildConfig.DEBUG && aiTriggeredForUrl != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Legacy Tags (Debug Comparison)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (legacyTags.isEmpty()) {
+                    Text(
+                        text = if (autoTagState is AutoTagState.Loading) "Extracting..." else "(no legacy tags found)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+                } else {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    ) {
+                        legacyTags.forEach { tag ->
+                            InputChip(
+                                selected = false,
+                                onClick = { 
+                                    if (!selectedTags.contains(tag)) selectedTags.add(tag)
+                                },
+                                label = { Text(tag) }
+                            )
+                        }
                     }
                 }
             }
