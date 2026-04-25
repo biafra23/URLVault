@@ -46,7 +46,7 @@ compose.desktop {
 
             macOS {
                 iconFile.set(project.file("src/desktopMain/resources/icon.icns"))
-                bundleID = "com.biafra23.urlvault"
+                bundleID = "com.biafra23.anchorvault"
             }
             windows {
                 iconFile.set(project.file("src/desktopMain/resources/icon.ico"))
