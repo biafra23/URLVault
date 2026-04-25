@@ -12,14 +12,17 @@ plugins {
 val appVersion: String = project.findProperty("appVersion")?.toString() ?: "1.0.0"
 
 // Short git commit hash, appended to packaged installer filenames after Compose Desktop produces
-// them. Falls back to "nogit" outside a checkout.
+// them. Falls back to "nogit" outside a checkout or when `git rev-parse` fails — without an
+// exit-code/regex check, a "fatal: ..." error message would otherwise be embedded in the filename.
 val gitShortHash: String = runCatching {
     val process = ProcessBuilder("git", "rev-parse", "--short", "HEAD")
         .directory(rootDir)
         .redirectErrorStream(true)
         .start()
-    process.inputStream.bufferedReader().readText().trim().also { process.waitFor() }
-}.getOrNull()?.takeIf { it.isNotBlank() } ?: "nogit"
+    val output = process.inputStream.bufferedReader().readText().trim()
+    val exitCode = process.waitFor()
+    output.takeIf { exitCode == 0 && it.matches(Regex("^[0-9a-f]{7,}$")) }
+}.getOrNull() ?: "nogit"
 
 kotlin {
     jvm("desktop")
@@ -72,6 +75,9 @@ compose.desktop {
 
 // Compose Desktop's packageVersion must match strict per-platform version formats, so the commit
 // hash cannot be part of it. Append it to the produced installer filenames instead.
+// Use Files.move (which throws on failure) rather than File.renameTo (which silently returns false
+// on Windows file locks / AV) so a failed rename fails the task instead of leaving CI to discover
+// un-hashed filenames.
 for (format in listOf("Dmg", "Msi", "Deb")) {
     tasks.matching { it.name == "package$format" }.configureEach {
         doLast {
@@ -84,8 +90,11 @@ for (format in listOf("Dmg", "Msi", "Deb")) {
             for (original in matches) {
                 if (original.nameWithoutExtension.endsWith("-$gitShortHash")) continue
                 val target = File(outputDir, "${original.nameWithoutExtension}-$gitShortHash.${original.extension}")
-                if (target.exists()) target.delete()
-                original.renameTo(target)
+                java.nio.file.Files.move(
+                    original.toPath(),
+                    target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                )
             }
         }
     }

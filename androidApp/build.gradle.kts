@@ -16,14 +16,18 @@ plugins {
 val appVersion: String = project.findProperty("appVersion")?.toString() ?: "1.0.0"
 val appVersionCode: Int = project.findProperty("appVersionCode")?.toString()?.toIntOrNull() ?: 1
 
-// Short git commit hash, baked into artifact filenames. Falls back to "nogit" outside a checkout.
+// Short git commit hash, baked into artifact filenames. Falls back to "nogit" outside a checkout
+// or when `git rev-parse` fails — without an exit-code/regex check, a "fatal: ..." error message
+// from a non-git environment would otherwise be embedded in the filename.
 val gitShortHash: String = runCatching {
     val process = ProcessBuilder("git", "rev-parse", "--short", "HEAD")
         .directory(rootDir)
         .redirectErrorStream(true)
         .start()
-    process.inputStream.bufferedReader().readText().trim().also { process.waitFor() }
-}.getOrNull()?.takeIf { it.isNotBlank() } ?: "nogit"
+    val output = process.inputStream.bufferedReader().readText().trim()
+    val exitCode = process.waitFor()
+    output.takeIf { exitCode == 0 && it.matches(Regex("^[0-9a-f]{7,}$")) }
+}.getOrNull() ?: "nogit"
 
 android {
     namespace = "com.jaeckel.urlvault.android"
@@ -107,12 +111,17 @@ android {
         abortOnError = false
         checkDependencies = false
     }
+}
 
-    applicationVariants.all {
-        val variant = this
-        outputs.all {
-            (this as com.android.build.gradle.api.ApkVariantOutput).outputFileName =
-                "URLVault-${appVersion}-${gitShortHash}-${variant.buildType.name}.apk"
+// Set the APK filename via the public Variant API (androidComponents.onVariants) instead of the
+// legacy applicationVariants + ApkVariantOutput cast. The legacy API is deprecated and going
+// away; the public Variant API exposes outputFileName as a Property<String>.
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            output.outputFileName.set(
+                "URLVault-${appVersion}-${gitShortHash}-${variant.buildType ?: variant.name}.apk"
+            )
         }
     }
 }
