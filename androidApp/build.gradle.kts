@@ -111,17 +111,17 @@ android {
         abortOnError = false
         checkDependencies = false
     }
-}
 
-// Set the APK filename via the public Variant API (androidComponents.onVariants) instead of the
-// legacy applicationVariants + ApkVariantOutput cast. The legacy API is deprecated and going
-// away; the public Variant API exposes outputFileName as a Property<String>.
-androidComponents {
-    onVariants { variant ->
-        variant.outputs.forEach { output ->
-            output.outputFileName.set(
-                "URLVault-${appVersion}-${gitShortHash}-${variant.buildType ?: variant.name}.apk"
-            )
+    // Use the public ApkVariantOutput interface (legacy applicationVariants API). The modern
+    // androidComponents.onVariants Variant API is preferable in principle, but in AGP 8.7.3
+    // the VariantOutput interface does not expose outputFileName — that property still lives
+    // on the legacy ApkVariantOutput type, which is at least public (vs. the internal
+    // BaseVariantOutputImpl). Revisit when AGP exposes outputFileName on VariantOutput.
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            (this as com.android.build.gradle.api.ApkVariantOutput).outputFileName =
+                "URLVault-${appVersion}-${gitShortHash}-${variant.buildType.name}.apk"
         }
     }
 }

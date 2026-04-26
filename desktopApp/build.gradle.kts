@@ -1,4 +1,6 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -90,10 +92,10 @@ for (format in listOf("Dmg", "Msi", "Deb")) {
             for (original in matches) {
                 if (original.nameWithoutExtension.endsWith("-$gitShortHash")) continue
                 val target = File(outputDir, "${original.nameWithoutExtension}-$gitShortHash.${original.extension}")
-                java.nio.file.Files.move(
+                Files.move(
                     original.toPath(),
                     target.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                    StandardCopyOption.REPLACE_EXISTING
                 )
             }
         }
