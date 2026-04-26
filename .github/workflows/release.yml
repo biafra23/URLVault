@@ -63,7 +63,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.apk.outputs.name }}
+          name: Android-${{ steps.apk.outputs.name }}
           path: androidApp/build/outputs/apk/release/URLVault-*.apk
 
   # ─────────────────────────────────────────────
@@ -105,7 +105,7 @@ jobs:
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.installer.outputs.name }}
+          name: Linux-${{ steps.installer.outputs.name }}
           path: desktopApp/build/compose/binaries/main/deb/*.deb
 
   # ─────────────────────────────────────────────
@@ -150,7 +150,7 @@ jobs:
       - name: Upload .msi artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.installer.outputs.name }}
+          name: Windows-${{ steps.installer.outputs.name }}
           path: desktopApp/build/compose/binaries/main/msi/*.msi
 
   # ─────────────────────────────────────────────
@@ -192,7 +192,7 @@ jobs:
       - name: Upload .dmg artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.installer.outputs.name }}
+          name: macOS-${{ steps.installer.outputs.name }}
           path: desktopApp/build/compose/binaries/main/dmg/*.dmg
 
   # ─────────────────────────────────────────────
