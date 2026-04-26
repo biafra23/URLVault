@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AnchorVault is a Kotlin Multiplatform (KMP) bookmark manager that syncs with Bitwarden. It targets Android, Desktop (JVM), and iOS using Compose Multiplatform for shared UI.
+URLVault is a Kotlin Multiplatform (KMP) bookmark manager that syncs with Bitwarden. It targets Android, Desktop (JVM), and iOS using Compose Multiplatform for shared UI.
 
 ## Build Commands
 
@@ -44,13 +44,13 @@ There are no tests in the project yet. The Android module is configured with `An
 **Repository pattern with platform-specific implementations:**
 - `BookmarkRepository` interface in `shared/commonMain`
 - `RoomBookmarkRepository` in `androidApp` (Room + SQLCipher, encrypted via Android Keystore)
-- `DesktopBookmarkRepository` in `desktopApp` (SQLite JDBC, stores DB at `~/.anchorvault/bookmarks.db`)
+- `DesktopBookmarkRepository` in `desktopApp` (SQLite JDBC, stores DB at `~/.urlvault/bookmarks.db`)
 - `IosBookmarkRepository` in `shared/iosMain` (in-memory placeholder — no persistence yet)
 
 **Bitwarden sync flow:**
 - `BitwardenSyncService` interface → `KtorBitwardenSyncService` implementation
 - OAuth 2.0 client credentials flow against Bitwarden Identity API
-- Bookmarks stored as Secure Notes (ciphers of type 2) in a dedicated "AnchorVault" folder
+- Bookmarks stored as Secure Notes (ciphers of type 2) in a dedicated "URLVault" folder
 - Merge strategy: latest `updatedAt` timestamp wins per bookmark ID
 
 **State management:**
@@ -60,13 +60,13 @@ There are no tests in the project yet. The Android module is configured with `An
 
 ### Dependency Injection
 
-- **Android:** Koin — configured in `AppModule.kt`, started in `AnchorVaultApp.kt`
+- **Android:** Koin — configured in `AppModule.kt`, started in `URLVaultApp.kt`
 - **Desktop/iOS:** Manual instantiation in their respective `Main.kt`/`MainViewController.kt`
 
 ### Package Structure (shared module)
 
 ```
-com.biafra23.anchorvault/
+com.jaeckel.urlvault/
 ├── model/          # Bookmark, Tag (both @Serializable)
 ├── repository/     # BookmarkRepository interface
 ├── sync/           # BitwardenSyncService, KtorBitwardenSyncService, BitwardenCredentials

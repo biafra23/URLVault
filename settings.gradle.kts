@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AnchorVault"
+rootProject.name = "URLVault"
 
 include(":shared")
 include(":androidApp")

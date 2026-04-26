@@ -1,9 +1,9 @@
-# AnchorVault
+# URLVault
 Store your Bookmarks in Bitwarden
 
 ## Overview
 
-AnchorVault is a **Compose Multiplatform** bookmark manager that supports **Android**, **iOS**, and **Desktop** (JVM) clients.
+URLVault is a **Compose Multiplatform** bookmark manager that supports **Android**, **iOS**, and **Desktop** (JVM) clients.
 Bookmarks are stored locally in an encrypted database and can be synced across devices via the Bitwarden vault API.
 
 ## Features
@@ -19,7 +19,7 @@ Bookmarks are stored locally in an encrypted database and can be synced across d
 ## Architecture
 
 ```
-AnchorVault/
+URLVault/
 ├── shared/               ← Kotlin Multiplatform library (commonMain, androidMain, desktopMain, iosMain)
 │   └── src/commonMain/  ← Compose UI, ViewModels, Repository interface, Models, Bitwarden sync
 ├── androidApp/           ← Android application (Room + SQLCipher, Koin DI)
@@ -83,10 +83,10 @@ AnchorVault/
 
 1. Log in to your Bitwarden vault at [bitwarden.com](https://bitwarden.com)
 2. Navigate to **Settings → Security → API Key** to obtain your `clientId` and `clientSecret`
-3. Open **AnchorVault → Settings** and enter your credentials
+3. Open **URLVault → Settings** and enter your credentials
 4. Tap the sync button (🔄) to push/pull bookmarks
 
-Bookmarks are stored as **Secure Notes** in a dedicated `AnchorVault` folder in your vault.
+Bookmarks are stored as **Secure Notes** in a dedicated `URLVault` folder in your vault.
 The JSON structure of each bookmark is stored in the note body for easy round-tripping.
 
 ## Security

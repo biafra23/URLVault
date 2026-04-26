@@ -74,7 +74,7 @@ kotlin {
 }
 
 android {
-    namespace = "com.biafra23.anchorvault.shared"
+    namespace = "com.jaeckel.urlvault.shared"
     compileSdk = 36
 
     defaultConfig {

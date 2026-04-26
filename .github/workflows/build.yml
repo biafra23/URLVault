@@ -36,11 +36,17 @@ jobs:
       - name: Build Android debug APK
         run: ./gradlew :androidApp:assembleDebug --no-daemon
 
+      - name: Resolve APK artifact name
+        id: apk
+        run: |
+          APK=$(ls androidApp/build/outputs/apk/debug/URLVault-*.apk | head -n 1)
+          echo "name=$(basename "$APK" .apk)" >> "$GITHUB_OUTPUT"
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
-          path: androidApp/build/outputs/apk/debug/*.apk
+          name: Android-${{ steps.apk.outputs.name }}
+          path: androidApp/build/outputs/apk/debug/URLVault-*.apk
           retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
 
   build-desktop:
@@ -53,15 +59,12 @@ jobs:
           - os: ubuntu-latest
             os-label: Linux
             installer-glob: desktopApp/build/compose/binaries/main/deb/*.deb
-            artifact-name: desktop-linux-deb
           - os: macos-latest
             os-label: macOS
             installer-glob: desktopApp/build/compose/binaries/main/dmg/*.dmg
-            artifact-name: desktop-macos-dmg
           - os: windows-latest
             os-label: Windows
             installer-glob: desktopApp/build/compose/binaries/main/msi/*.msi
-            artifact-name: desktop-windows-msi
 
     steps:
       - name: Checkout
@@ -82,9 +85,17 @@ jobs:
         shell: bash
         run: ./gradlew :desktopApp:packageDistributionForCurrentOS --no-daemon
 
+      - name: Resolve installer artifact name
+        id: installer
+        shell: bash
+        run: |
+          FILE=$(ls ${{ matrix.installer-glob }} | head -n 1)
+          BASE=$(basename "$FILE")
+          echo "name=${BASE%.*}" >> "$GITHUB_OUTPUT"
+
       - name: Upload Desktop installer
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact-name }}
+          name: ${{ matrix.os-label }}-${{ steps.installer.outputs.name }}
           path: ${{ matrix.installer-glob }}
           retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}

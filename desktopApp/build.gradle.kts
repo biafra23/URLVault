@@ -1,4 +1,6 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -10,6 +12,19 @@ plugins {
 // Allow version to be overridden from the command line (used by the release CI workflow).
 // e.g. ./gradlew packageDeb -PappVersion=0.1.0
 val appVersion: String = project.findProperty("appVersion")?.toString() ?: "1.0.0"
+
+// Short git commit hash, appended to packaged installer filenames after Compose Desktop produces
+// them. Falls back to "nogit" outside a checkout or when `git rev-parse` fails — without an
+// exit-code/regex check, a "fatal: ..." error message would otherwise be embedded in the filename.
+val gitShortHash: String = runCatching {
+    val process = ProcessBuilder("git", "rev-parse", "--short", "HEAD")
+        .directory(rootDir)
+        .redirectErrorStream(true)
+        .start()
+    val output = process.inputStream.bufferedReader().readText().trim()
+    val exitCode = process.waitFor()
+    output.takeIf { exitCode == 0 && it.matches(Regex("^[0-9a-f]{7,}$")) }
+}.getOrNull() ?: "nogit"
 
 kotlin {
     jvm("desktop")
@@ -33,28 +48,55 @@ kotlin {
 
 compose.desktop {
     application {
-        mainClass = "com.biafra23.anchorvault.desktop.MainKt"
+        mainClass = "com.jaeckel.urlvault.desktop.MainKt"
         from(kotlin.targets["desktop"])
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             modules("java.sql", "java.net.http", "java.logging", "java.naming", "jdk.crypto.ec", "jdk.unsupported")
-            packageName = "AnchorVault"
+            packageName = "URLVault"
             packageVersion = appVersion
             description = "Secure bookmark storage with Bitwarden sync"
-            copyright = "© 2024 AnchorVault"
+            copyright = "© 2024 URLVault"
 
             macOS {
                 iconFile.set(project.file("src/desktopMain/resources/icon.icns"))
-                bundleID = "com.biafra23.anchorvault"
+                bundleID = "com.jaeckel.urlvault"
             }
             windows {
                 iconFile.set(project.file("src/desktopMain/resources/icon.ico"))
-                menuGroup = "AnchorVault"
+                menuGroup = "URLVault"
                 upgradeUuid = "e0f7a5e3-4d2b-4b8e-9c1a-5f6d7e8a9b0c"
             }
             linux {
                 iconFile.set(project.file("src/desktopMain/resources/icon.png"))
+            }
+        }
+    }
+}
+
+// Compose Desktop's packageVersion must match strict per-platform version formats, so the commit
+// hash cannot be part of it. Append it to the produced installer filenames instead.
+// Use Files.move (which throws on failure) rather than File.renameTo (which silently returns false
+// on Windows file locks / AV) so a failed rename fails the task instead of leaving CI to discover
+// un-hashed filenames.
+for (format in listOf("Dmg", "Msi", "Deb")) {
+    tasks.matching { it.name == "package$format" }.configureEach {
+        doLast {
+            val outputDir = layout.buildDirectory
+                .dir("compose/binaries/main/${format.lowercase()}")
+                .get().asFile
+            val matches = outputDir.listFiles()
+                ?.filter { it.extension.equals(format, ignoreCase = true) }
+                .orEmpty()
+            for (original in matches) {
+                if (original.nameWithoutExtension.endsWith("-$gitShortHash")) continue
+                val target = File(outputDir, "${original.nameWithoutExtension}-$gitShortHash.${original.extension}")
+                Files.move(
+                    original.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING
+                )
             }
         }
     }
