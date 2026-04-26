@@ -1,6 +1,7 @@
 package com.jaeckel.urlvault.android.ai
 
 import android.util.Log
+import com.jaeckel.urlvault.ai.ModelComparisonRunner
 import io.ktor.client.HttpClient
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
@@ -44,6 +45,13 @@ class AICoreService(httpClient: HttpClient) {
 
     private val _status = MutableStateFlow<AICoreStatus>(AICoreStatus.Unknown)
     val status: StateFlow<AICoreStatus> = _status.asStateFlow()
+
+    /**
+     * Optional. When set, `runBenchmarking()` additionally runs every ready
+     * provider in the registry (e.g. downloaded GGUFs) so the DEBUG logcat
+     * benchmark covers all installed local models, not just Gemini Nano.
+     */
+    var comparisonRunner: ModelComparisonRunner? = null
 
     /**
      * Obtains the generative model instance.
@@ -233,7 +241,7 @@ class AICoreService(httpClient: HttpClient) {
             Log.v(TAG, "AI Prompt prepared for tag generation (titleIncluded=${title.isNotBlank()}, descriptionIncluded=${description.isNotBlank()}, pageSummaryIncluded=${pageSummary.isNotBlank()}, length=${prompt.length})")
             
             if (com.jaeckel.urlvault.android.BuildConfig.DEBUG) {
-                runBenchmarking(prompt)
+                runBenchmarking(prompt, sourceUrl = url, sourceTitle = title, sourceUserDescription = description)
             }
 
             val text = runInference(prompt)
@@ -283,7 +291,7 @@ class AICoreService(httpClient: HttpClient) {
             }
             
             if (com.jaeckel.urlvault.android.BuildConfig.DEBUG) {
-                runBenchmarking(prompt)
+                runBenchmarking(prompt, sourceUrl = url, sourceTitle = title, sourceUserDescription = "")
             }
 
             validateDescription(runInference(prompt).trim())
@@ -334,10 +342,17 @@ class AICoreService(httpClient: HttpClient) {
     }
 
     /**
-     * Runs inference across all model permutations to compare performance and quality.
-     * Only executed in debug builds.
+     * Runs inference across all Gemini Nano permutations to compare performance and quality.
+     * Additionally, if a [comparisonRunner] is set, runs every other ready provider in
+     * the registry (downloaded GGUFs, etc.) so the DEBUG benchmark covers the full set
+     * of installed local models. Only executed in debug builds.
      */
-    private suspend fun runBenchmarking(prompt: String) {
+    private suspend fun runBenchmarking(
+        prompt: String,
+        sourceUrl: String,
+        sourceTitle: String,
+        sourceUserDescription: String,
+    ) {
         val stages = listOf(ModelReleaseStage.STABLE, ModelReleaseStage.PREVIEW)
         val preferences = listOf(ModelPreference.FAST, ModelPreference.FULL)
 
@@ -390,6 +405,27 @@ class AICoreService(httpClient: HttpClient) {
             }
         }
         Log.i(TAG, "--- Gemini Nano Benchmark End ---")
+
+        comparisonRunner?.let { runner ->
+            try {
+                val results = runner.runAll(sourceUrl, sourceTitle, sourceUserDescription)
+                results.forEach { r ->
+                    if (r.providerId == "mlkit:gemini-nano-active") return@forEach
+                    val tagsStr = r.tags.joinToString(",").take(120)
+                    val descStr = r.description.replace("\n", " ").take(120)
+                    val titleStr = r.title.replace("\n", " ").take(80)
+                    Log.i(
+                        TAG,
+                        "BENCHMARK | Provider=${r.displayName} | Runtime=${r.runtime} | " +
+                            "TagsMs=${r.tagsMs} DescMs=${r.descriptionMs} TitleMs=${r.titleMs} | " +
+                            "Tags=[$tagsStr] | Desc=$descStr | Title=$titleStr" +
+                            (if (r.error != null) " | Error=${r.error}" else "")
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Registry benchmark failed: ${e.message}")
+            }
+        }
     }
 
     private fun validateDescription(text: String): String {

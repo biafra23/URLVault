@@ -45,6 +45,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import com.jaeckel.urlvault.ai.ModelCatalogEntry
+import com.jaeckel.urlvault.ai.ModelDownloadState
+import com.jaeckel.urlvault.ai.ModelRuntime
 import com.jaeckel.urlvault.sync.BitwardenCredentials
 import com.jaeckel.urlvault.sync.BitwardenSyncService
 import com.jaeckel.urlvault.sync.SettingsFieldHistory
@@ -64,6 +67,15 @@ fun SettingsScreen(
     aiCoreEnabled: Boolean = false,
     aiCoreStatusText: String? = null,
     onAiCoreEnabledChanged: (Boolean) -> Unit = {},
+    localModelCatalog: List<ModelCatalogEntry> = emptyList(),
+    localModelStates: Map<String, ModelDownloadState> = emptyMap(),
+    activeModelIds: Set<String> = emptySet(),
+    onDownloadModel: (ModelCatalogEntry) -> Unit = {},
+    onCancelModelDownload: (ModelCatalogEntry) -> Unit = {},
+    onDeleteModel: (ModelCatalogEntry) -> Unit = {},
+    onToggleModelActive: (ModelCatalogEntry, Boolean) -> Unit = { _, _ -> },
+    onAddCustomModel: (hfRepo: String, hfFile: String, displayName: String) -> Unit = { _, _, _ -> },
+    onOpenComparison: () -> Unit = {},
     onSaveCredentials: (BitwardenCredentials) -> Unit,
     onNavigateBack: () -> Unit,
     fieldHistory: SettingsFieldHistory = SettingsFieldHistory(),
@@ -357,6 +369,46 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider()
 
+            // --- Local AI Models Section ---
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Local AI Models",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "Download open models from Hugging Face to run on-device. " +
+                    "Bookmark AI uses the models you mark active; the comparison screen runs all of them.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            localModelCatalog.forEach { entry ->
+                val state = localModelStates[entry.id] ?: ModelDownloadState.Idle
+                ModelCatalogRow(
+                    entry = entry,
+                    state = state,
+                    isActive = entry.id in activeModelIds,
+                    onDownload = { onDownloadModel(entry) },
+                    onCancel = { onCancelModelDownload(entry) },
+                    onDelete = { onDeleteModel(entry) },
+                    onToggleActive = { onToggleModelActive(entry, it) },
+                )
+            }
+
+            CustomModelEntryRow(onAdd = onAddCustomModel)
+
+            Button(
+                onClick = onOpenComparison,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Run model comparison")
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider()
+
             // --- About Section ---
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -444,6 +496,174 @@ private fun AutocompleteTextField(
             }
         }
     }
+}
+
+@Composable
+private fun ModelCatalogRow(
+    entry: ModelCatalogEntry,
+    state: ModelDownloadState,
+    isActive: Boolean,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+    onToggleActive: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = entry.displayName,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = "${entry.runtime.name.lowercase()} • ${formatBytes(entry.approxBytes)} • ${entry.license}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (entry.notes.isNotBlank()) {
+                    Text(
+                        text = entry.notes,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+            }
+        }
+
+        // Status + action row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = describeState(state),
+                style = MaterialTheme.typography.bodySmall,
+                color = when (state) {
+                    is ModelDownloadState.Failed -> MaterialTheme.colorScheme.error
+                    is ModelDownloadState.Ready -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.weight(1f),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val isInProgress = state is ModelDownloadState.Downloading ||
+                    state is ModelDownloadState.Queued ||
+                    state is ModelDownloadState.Verifying
+                when {
+                    state is ModelDownloadState.Ready -> {
+                        Text("Active", style = MaterialTheme.typography.labelSmall)
+                        Spacer(Modifier.size(4.dp))
+                        Switch(
+                            checked = isActive,
+                            onCheckedChange = onToggleActive,
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Button(onClick = onDelete) { Text("Delete") }
+                    }
+                    isInProgress -> {
+                        Button(onClick = onCancel) { Text("Cancel") }
+                    }
+                    else -> {
+                        Button(
+                            onClick = onDownload,
+                            enabled = entry.runtime != ModelRuntime.MEDIAPIPE,
+                        ) { Text("Download") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomModelEntryRow(
+    onAdd: (hfRepo: String, hfFile: String, displayName: String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var hfRepo by remember { mutableStateOf("") }
+    var hfFile by remember { mutableStateOf("") }
+    var displayName by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("Add custom GGUF from Hugging Face", style = MaterialTheme.typography.bodyLarge)
+            Switch(checked = expanded, onCheckedChange = { expanded = it })
+        }
+        if (expanded) {
+            OutlinedTextField(
+                value = hfRepo,
+                onValueChange = { hfRepo = it },
+                label = { Text("HF repo (e.g. LiquidAI/LFM2-1.2B-GGUF)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = hfFile,
+                onValueChange = { hfFile = it },
+                label = { Text("File name (e.g. LFM2-1.2B-Q4_K_M.gguf)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = displayName,
+                onValueChange = { displayName = it },
+                label = { Text("Display name (optional)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = {
+                    onAdd(hfRepo.trim(), hfFile.trim(), displayName.trim().ifBlank { "$hfRepo/$hfFile" })
+                    hfRepo = ""; hfFile = ""; displayName = ""
+                    expanded = false
+                },
+                enabled = hfRepo.isNotBlank() && hfFile.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Add to catalog") }
+        }
+    }
+}
+
+private fun describeState(state: ModelDownloadState): String = when (state) {
+    ModelDownloadState.Idle -> "Not downloaded"
+    ModelDownloadState.Queued -> "Queued..."
+    is ModelDownloadState.Downloading -> {
+        val pct = (state.progress * 100).toInt().coerceIn(0, 100)
+        "Downloading $pct% (${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.totalBytes)})"
+    }
+    ModelDownloadState.Verifying -> "Verifying..."
+    is ModelDownloadState.Ready -> "Ready (${formatBytes(state.sizeBytes)})"
+    is ModelDownloadState.Failed -> "Failed: ${state.reason}"
+}
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val units = arrayOf("B", "KB", "MB", "GB")
+    var value = bytes.toDouble()
+    var unit = 0
+    while (value >= 1024.0 && unit < units.size - 1) {
+        value /= 1024.0; unit++
+    }
+    val rounded = ((value * 10).toLong()) / 10.0
+    return "$rounded ${units[unit]}"
 }
 
 @Composable

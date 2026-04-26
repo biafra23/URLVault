@@ -9,14 +9,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.jaeckel.urlvault.ai.ModelCatalog
+import com.jaeckel.urlvault.ai.ModelCatalogEntry
+import com.jaeckel.urlvault.ai.ModelComparisonRunner
+import com.jaeckel.urlvault.ai.ModelRuntime
 import com.jaeckel.urlvault.android.ai.AICoreService
 import com.jaeckel.urlvault.android.ai.AICoreStatus
+import com.jaeckel.urlvault.android.ai.LocalModelPreferences
+import com.jaeckel.urlvault.android.ai.ModelDownloadManager
 import com.jaeckel.urlvault.android.sync.AndroidBitwardenPreferences
 import com.jaeckel.urlvault.model.Bookmark
 import com.jaeckel.urlvault.sync.BitwardenSyncService
 import com.jaeckel.urlvault.ui.AddEditBookmarkScreen
 import com.jaeckel.urlvault.ui.BookmarkListScreen
+import com.jaeckel.urlvault.ui.ModelComparisonScreen
 import com.jaeckel.urlvault.ui.SettingsScreen
 import com.jaeckel.urlvault.ui.theme.URLVaultTheme
 import com.jaeckel.urlvault.viewmodel.BookmarkViewModel
@@ -33,6 +41,9 @@ class MainActivity : ComponentActivity() {
     private val bitwardenPrefs: AndroidBitwardenPreferences by inject()
     private val syncService: BitwardenSyncService by inject()
     private val aiCoreService: AICoreService by inject()
+    private val localModelPrefs: LocalModelPreferences by inject()
+    private val modelDownloadManager: ModelDownloadManager by inject()
+    private val modelComparisonRunner: ModelComparisonRunner by inject()
 
     /** Hoisted so onNewIntent can update navigation state. */
     private var currentScreen by mutableStateOf<Screen>(Screen.List)
@@ -49,6 +60,9 @@ class MainActivity : ComponentActivity() {
                 var autoTagEnabled by mutableStateOf(bitwardenPrefs.loadAutoTagEnabled())
                 var aiCoreEnabled by mutableStateOf(bitwardenPrefs.loadAiCoreEnabled())
                 val aiCoreStatus by aiCoreService.status.collectAsState()
+                val downloadStates by modelDownloadManager.states.collectAsState()
+                var customEntries by remember { mutableStateOf(localModelPrefs.loadCustomEntries()) }
+                var activeIds by remember { mutableStateOf(localModelPrefs.loadActiveIds()) }
 
                 // Kick off AICore initialization once
                 LaunchedEffect(Unit) {
@@ -108,6 +122,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     is Screen.Settings -> {
+                        val catalog = ModelCatalog.builtIn + customEntries
                         SettingsScreen(
                             currentCredentials = bitwardenPrefs.loadCredentials(),
                             syncService = syncService,
@@ -123,6 +138,37 @@ class MainActivity : ComponentActivity() {
                                 aiCoreEnabled = enabled
                                 bitwardenPrefs.saveAiCoreEnabled(enabled)
                             },
+                            localModelCatalog = catalog,
+                            localModelStates = downloadStates,
+                            activeModelIds = activeIds,
+                            onDownloadModel = { entry -> modelDownloadManager.download(entry) },
+                            onCancelModelDownload = { entry -> modelDownloadManager.cancel(entry) },
+                            onDeleteModel = { entry ->
+                                modelDownloadManager.delete(entry)
+                                if (entry.id in activeIds) {
+                                    activeIds = activeIds - entry.id
+                                    localModelPrefs.saveActiveIds(activeIds)
+                                }
+                            },
+                            onToggleModelActive = { entry, active ->
+                                activeIds = if (active) activeIds + entry.id else activeIds - entry.id
+                                localModelPrefs.saveActiveIds(activeIds)
+                            },
+                            onAddCustomModel = { hfRepo, hfFile, displayName ->
+                                val newEntry = ModelCatalogEntry(
+                                    id = "custom:" + hfRepo.lowercase().replace('/', '_') + ":" + hfFile.lowercase(),
+                                    displayName = displayName,
+                                    runtime = ModelRuntime.LLAMA_CPP,
+                                    hfRepo = hfRepo,
+                                    hfFile = hfFile,
+                                    approxBytes = 0L,
+                                    license = "Unknown",
+                                    builtIn = false,
+                                )
+                                customEntries = (customEntries + newEntry).distinctBy { it.id }
+                                localModelPrefs.saveCustomEntries(customEntries)
+                            },
+                            onOpenComparison = { currentScreen = Screen.Comparison },
                             onSaveCredentials = { credentials ->
                                 bitwardenPrefs.saveCredentials(credentials)
                                 bitwardenPrefs.addToFieldHistory(credentials)
@@ -130,6 +176,13 @@ class MainActivity : ComponentActivity() {
                             },
                             onNavigateBack = { currentScreen = Screen.List },
                             fieldHistory = bitwardenPrefs.loadFieldHistory()
+                        )
+                    }
+
+                    is Screen.Comparison -> {
+                        ModelComparisonScreen(
+                            runner = modelComparisonRunner,
+                            onNavigateBack = { currentScreen = Screen.Settings },
                         )
                     }
                 }
@@ -160,4 +213,5 @@ sealed class Screen {
         val prefilledUrl: String? = null
     ) : Screen()
     data object Settings : Screen()
+    data object Comparison : Screen()
 }

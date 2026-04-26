@@ -1,7 +1,16 @@
 package com.jaeckel.urlvault.android.di
 
 import android.content.Context
+import com.jaeckel.urlvault.ai.LocalModelRegistry
+import com.jaeckel.urlvault.ai.ModelCatalog
+import com.jaeckel.urlvault.ai.ModelComparisonRunner
 import com.jaeckel.urlvault.android.ai.AICoreService
+import com.jaeckel.urlvault.android.ai.AICoreServiceAdapter
+import com.jaeckel.urlvault.android.ai.LlamaCppNativeBridge
+import com.jaeckel.urlvault.android.ai.LocalModelPreferences
+import com.jaeckel.urlvault.android.ai.LocalModelRouter
+import com.jaeckel.urlvault.android.ai.ModelDownloadManager
+import com.jaeckel.urlvault.android.ai.NoOpLlamaCppNativeBridge
 import com.jaeckel.urlvault.android.database.AppDatabase
 import com.jaeckel.urlvault.android.database.DatabaseKeyManager
 import com.jaeckel.urlvault.android.database.RoomBookmarkRepository
@@ -70,16 +79,67 @@ val appModule = module {
     // ML Kit GenAI Prompt API (Gemini Nano on-device)
     single { AICoreService(get()) }
 
+    // --- Local model framework -------------------------------------------------
+
+    // Persisted model selection / custom catalog entries
+    single { LocalModelPreferences(androidContext()) }
+
+    // Live registry of installed local-model providers (Gemini Nano + GGUFs)
+    single {
+        val registry = LocalModelRegistry()
+        // Wrap the existing AICoreService as a provider so it shows up alongside
+        // any downloaded GGUFs in the comparison UI and the bookmark AI router.
+        registry.register(AICoreServiceAdapter(get()))
+        registry
+    }
+
+    // Default no-op bridge — no JNI is shipped in this repo. Replace with a
+    // real implementation once a llama.cpp Android wrapper is added.
+    single<LlamaCppNativeBridge> { NoOpLlamaCppNativeBridge }
+
+    // Cross-provider comparison helper (used by both DEBUG logcat benchmark
+    // and the user-visible ModelComparisonScreen)
+    single { ModelComparisonRunner(get()) }
+
+    // Hugging Face downloader; rehydrates already-downloaded GGUFs at startup
+    single {
+        val mgr = ModelDownloadManager(
+            context = androidContext(),
+            sharedHttp = get(),
+            registry = get(),
+            bridge = get(),
+            appScope = get(),
+            authTokenProvider = { get<LocalModelPreferences>().loadHfToken() },
+        )
+        // Combine built-in + user-added entries and rehydrate from disk.
+        val customEntries = get<LocalModelPreferences>().loadCustomEntries()
+        mgr.rehydrateFromDisk(ModelCatalog.builtIn + customEntries)
+        // Also wire the comparison runner into AICoreService so the DEBUG
+        // benchmark covers all installed models, not just Gemini Nano.
+        get<AICoreService>().comparisonRunner = get()
+        mgr
+    }
+
+    // Routes bookmark AI calls to the user's selected provider.
+    single {
+        LocalModelRouter(
+            registry = get(),
+            activeIdsProvider = { get<LocalModelPreferences>().loadActiveIds() },
+        )
+    }
+
     // ViewModel
     viewModel {
-        val aiCoreService = get<AICoreService>()
+        // Eagerly create the download manager so rehydration happens at startup.
+        get<ModelDownloadManager>()
+        val router = get<LocalModelRouter>()
         BookmarkViewModel(
             repository = get(),
             syncService = get(),
             autoTagService = get(),
-            aiTagGenerator = { url, title, desc -> aiCoreService.generateTags(url, title, desc) },
-            aiDescriptionGenerator = { url, title -> aiCoreService.generateDescription(url, title) },
-            aiTitleGenerator = { url -> aiCoreService.generateTitle(url) }
+            aiTagGenerator = { url, title, desc -> router.generateTags(url, title, desc) },
+            aiDescriptionGenerator = { url, title -> router.generateDescription(url, title) },
+            aiTitleGenerator = { url -> router.generateTitle(url) }
         )
     }
 }
