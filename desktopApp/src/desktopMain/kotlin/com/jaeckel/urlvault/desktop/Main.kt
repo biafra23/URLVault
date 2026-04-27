@@ -19,7 +19,12 @@ import com.jaeckel.urlvault.ui.theme.URLVaultTheme
 import com.jaeckel.urlvault.viewmodel.BookmarkViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 
 /**
  * Desktop application entry point.
@@ -28,6 +33,19 @@ fun main() = application {
     val httpClient = remember {
         HttpClient {
             install(HttpTimeout) { requestTimeoutMillis = 10_000 }
+            // Required by KtorBitwardenSyncService — `setBody(mapOf(...))` and
+            // similar in shared/sync/* won't serialize without this.
+            install(ContentNegotiation) {
+                json(Json {
+                    ignoreUnknownKeys = true
+                    // Don't write defaults or nulls — Vaultwarden's typed-
+                    // cipher DTO validator rejects bodies that emit
+                    // {"login": null, "card": null, ...} for an unused field
+                    // type with a 422 Unprocessable Entity.
+                    encodeDefaults = false
+                    explicitNulls = false
+                })
+            }
             followRedirects = true
         }
     }
@@ -37,7 +55,23 @@ fun main() = application {
         com.jaeckel.urlvault.sync.KtorBitwardenSyncService(httpClient).also { service ->
             val saved = prefs.loadCredentials()
             if (saved != null) {
-                runBlocking { service.configure(saved) }
+                // On macOS, the master password lives in a Touch ID-gated
+                // Keychain item rather than the encrypted on-disk blob. Reading
+                // it triggers the system biometric prompt; we run on
+                // Dispatchers.IO so the prompt doesn't block the EDT (which
+                // would deadlock the Compose UI before any window appears).
+                val savedEmail = saved.email
+                val withMaster = if (prefs.isBiometricAvailable() && !savedEmail.isNullOrBlank()) {
+                    runBlocking {
+                        val pwd = withContext(Dispatchers.IO) {
+                            prefs.loadMasterPasswordWithBiometric(savedEmail)
+                        }
+                        if (pwd.isNullOrBlank()) saved else saved.copy(masterPassword = pwd)
+                    }
+                } else {
+                    saved
+                }
+                runBlocking { service.configure(withMaster) }
             }
         }
     }

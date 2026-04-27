@@ -45,8 +45,19 @@ class DesktopBitwardenPreferences {
     private val keyBackend: KeyBackend by lazy { selectKeyBackend() }
     private val secretKey: SecretKey by lazy { keyBackend.loadOrCreateKey() }
 
+    /**
+     * Master-password storage: on macOS, the password is written to a Touch
+     * ID-gated Keychain item via [MacBiometricKeychain]. On other OSes the
+     * password is intentionally not persisted (the `credentials.enc` file
+     * always strips it before encryption). Callers must handle the empty case.
+     */
+    private val biometricKeychain: MacBiometricKeychain by lazy { MacBiometricKeychain() }
+
     fun saveCredentials(credentials: BitwardenCredentials) {
-        // Exclude master password from disk storage on Desktop for security compliance
+        // Master password never lives in the encrypted on-disk blob — it goes
+        // to the OS biometric keychain on macOS, or is dropped on other OSes
+        // (user re-enters every launch). Either way the disk file only holds
+        // server URL / email / folder name.
         val secureCreds = credentials.copy(masterPassword = null)
         val plaintext = json.encodeToString(secureCreds).toByteArray(Charsets.UTF_8)
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
@@ -54,7 +65,37 @@ class DesktopBitwardenPreferences {
         cipher.init(Cipher.ENCRYPT_MODE, secretKey, GCMParameterSpec(GCM_TAG_BITS, iv))
         val ciphertext = cipher.doFinal(plaintext)
         credentialsFile.writeBytes(iv + ciphertext)
+
+        // Mirror the master password into the biometric keychain (macOS only).
+        // The account string scopes the Keychain item to a specific email so
+        // multiple Bitwarden accounts on the same Mac don't collide.
+        val email = credentials.email
+        val masterPassword = credentials.masterPassword
+        if (biometricKeychain.isSupported() && !email.isNullOrBlank()) {
+            if (!masterPassword.isNullOrBlank()) {
+                if (!biometricKeychain.savePassword(SERVICE_NAME, email, masterPassword)) {
+                    Logger.e(TAG, "Failed to persist master password in macOS biometric keychain")
+                }
+            } else {
+                biometricKeychain.deletePassword(SERVICE_NAME, email)
+            }
+        }
     }
+
+    /**
+     * Reads the master password from the biometric keychain, prompting the
+     * user with Touch ID. Blocks until the user approves or cancels. Must be
+     * called from a background thread — the prompt is system-modal and would
+     * otherwise deadlock the Compose UI thread. Returns null if the prompt is
+     * cancelled, the item doesn't exist, or biometric authentication fails.
+     */
+    fun loadMasterPasswordWithBiometric(email: String): String? {
+        if (!biometricKeychain.isSupported()) return null
+        if (email.isBlank()) return null
+        return biometricKeychain.loadPassword(SERVICE_NAME, email)
+    }
+
+    fun isBiometricAvailable(): Boolean = biometricKeychain.isSupported()
 
     fun loadCredentials(): BitwardenCredentials? {
         if (!credentialsFile.exists()) return null
@@ -70,6 +111,13 @@ class DesktopBitwardenPreferences {
     }
 
     fun clearCredentials() {
+        // Wipe the keychain item too so a follow-up launch can't surface a
+        // stale Touch ID prompt for credentials the user just removed.
+        if (biometricKeychain.isSupported()) {
+            loadCredentials()?.email?.takeIf { it.isNotBlank() }?.let { email ->
+                biometricKeychain.deletePassword(SERVICE_NAME, email)
+            }
+        }
         if (credentialsFile.exists()) credentialsFile.delete()
     }
 

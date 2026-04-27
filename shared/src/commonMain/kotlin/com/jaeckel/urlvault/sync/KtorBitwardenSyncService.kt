@@ -24,7 +24,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.datetime.Clock
+import kotlin.time.Clock
 
 /**
  * Ktor-based implementation of [BitwardenSyncService] that communicates with the
@@ -471,18 +471,6 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
     )
 
     /**
-     * Wrapper for POST /ciphers/create (new ciphers).
-     * The Bitwarden API requires folderId and collectionIds at the wrapper level,
-     * NOT inside the cipher object, when creating new items.
-     */
-    @Serializable
-    private data class CipherCreateRequest(
-        val cipher: CipherRequest,
-        val folderId: String? = null,
-        val collectionIds: List<String>? = null
-    )
-
-    /**
      * Upserts a vault item, matching by bookmark ID embedded in the notes JSON
      * rather than by display name (which can change on rename).
      */
@@ -523,23 +511,23 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
             log("Upserting cipher '${item.name}' (existingId=$existingId, folderId=$folderId, encrypted=$isEncryptionEnabled)")
 
             val response: HttpResponse = if (existingId != null) {
-                // UPDATE: PUT with folderId inside the cipher body
+                // UPDATE: PUT /ciphers/{id} with folderId inside the cipher body.
                 httpClient.put("${creds.apiBaseUrl}/ciphers/$existingId") {
                     bearerAuth(token)
                     contentType(ContentType.Application.Json)
                     setBody(cipherBody)
                 }
             } else {
-                // CREATE: POST to /ciphers/create with folderId in the wrapper
-                val createRequest = CipherCreateRequest(
-                    cipher = cipherBody.copy(folderId = null),
-                    folderId = folderId,
-                    collectionIds = null
-                )
-                httpClient.post("${creds.apiBaseUrl}/ciphers/create") {
+                // CREATE (personal vault): POST /ciphers with folderId inside
+                // the cipher body. NOT /ciphers/create — that endpoint is for
+                // creating ciphers inside an organization collection and
+                // requires `collectionIds`, which our app doesn't use.
+                // Vaultwarden returns a generic 422 if you hit /ciphers/create
+                // without collectionIds.
+                httpClient.post("${creds.apiBaseUrl}/ciphers") {
                     bearerAuth(token)
                     contentType(ContentType.Application.Json)
-                    setBody(createRequest)
+                    setBody(cipherBody)
                 }
             }
             if (!response.status.isSuccess()) {
@@ -563,8 +551,11 @@ fun createBitwardenSyncService(): KtorBitwardenSyncService {
         install(ContentNegotiation) {
             json(Json {
                 ignoreUnknownKeys = true
-                encodeDefaults = true
-                explicitNulls = true
+                // Don't write defaults or nulls — Vaultwarden's typed-cipher
+                // DTO validator rejects bodies that emit {"login": null,
+                // "card": null, ...} for an unused field type with a 422.
+                encodeDefaults = false
+                explicitNulls = false
             })
         }
     }

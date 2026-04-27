@@ -344,7 +344,7 @@ fun AddEditBookmarkScreen(
                                 return@Button
                             }
 
-                            val now = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+                            val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
                             val bookmark = Bookmark(
                                 id = existingBookmark?.id ?: generateId(),
                                 url = normalizedUrl,

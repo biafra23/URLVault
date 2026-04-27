@@ -22,7 +22,10 @@ import com.jaeckel.urlvault.sync.KtorBitwardenSyncService
 import com.jaeckel.urlvault.viewmodel.BookmarkViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -35,6 +38,19 @@ val appModule = module {
     single {
         HttpClient {
             install(HttpTimeout) { requestTimeoutMillis = 10_000 }
+            // Required by KtorBitwardenSyncService — `setBody(mapOf(...))` and
+            // similar in shared/sync/* won't serialize without this.
+            install(ContentNegotiation) {
+                json(Json {
+                    ignoreUnknownKeys = true
+                    // Don't write defaults or nulls — Vaultwarden's typed-
+                    // cipher DTO validator rejects bodies that emit
+                    // {"login": null, "card": null, ...} for an unused field
+                    // type with a 422 Unprocessable Entity.
+                    encodeDefaults = false
+                    explicitNulls = false
+                })
+            }
             followRedirects = true
         }
     }

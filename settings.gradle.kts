@@ -17,6 +17,15 @@ dependencyResolutionManagement {
     repositories {
         maven("https://maven.google.com/")
         mavenCentral()
+        // Liquid AI Leap SDK is published only as snapshots as of 2026-04.
+        // Restricted to ai.liquid.* so we don't accidentally resolve other
+        // dependencies from snapshot bytes that can change without notice.
+        maven("https://central.sonatype.com/repository/maven-snapshots/") {
+            mavenContent { snapshotsOnly() }
+            content {
+                includeGroup("ai.liquid.leap")
+            }
+        }
     }
 }
 

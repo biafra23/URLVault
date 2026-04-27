@@ -97,8 +97,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions {
-        jvmTarget = JvmTarget.JVM_11.target
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_11)
+        }
     }
 
     buildFeatures {
@@ -146,6 +148,23 @@ project.afterEvaluate {
     }
 }
 
+// LeapSDK transitively pulls androidx.core 1.17.0 (and a few related
+// AndroidX 1.x bumps) which require AGP 8.9.1+. We're on AGP 8.7.3.
+// Force-pin to AGP-8.7-compatible versions; if Leap calls into a 1.17-only
+// API at runtime we'll see a NoSuchMethodError and need to bump AGP.
+configurations.configureEach {
+    resolutionStrategy.eachDependency {
+        // core-viewtree only exists on 1.0.x, leave it alone.
+        if (requested.group == "androidx.core" &&
+            requested.name in setOf("core", "core-ktx")) {
+            useVersion("1.13.1")
+        }
+        if (requested.group == "androidx.compose.ui" && requested.version == "1.9.0") {
+            useVersion("1.7.6")
+        }
+    }
+}
+
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
@@ -182,12 +201,19 @@ dependencies {
     // Serialization
     implementation(libs.kotlinx.serialization.json)
 
-    // Ktor (HTTP client for web page content fetching)
+    // Ktor (HTTP client for web page content fetching + Bitwarden sync)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.android)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.json)
 
     // ML Kit GenAI Prompt API (Gemini Nano on-device)
     implementation(libs.mlkit.genai.prompt)
+
+    // Liquid AI Leap SDK — runs LFM2 family models with grammar-constrained
+    // JSON output (used by LeapModelProvider for the LFM2-1.2B-Extract entry).
+    implementation(libs.leap.sdk)
+    implementation(libs.leap.model.downloader)
 
     // Llamatik (llama.cpp via JNI; backs LlamatikNativeBridge).
     // Local build from `ferranpons/Llamatik` main (closest tag: v1.1.1) with

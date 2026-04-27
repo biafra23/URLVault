@@ -1,10 +1,10 @@
 [versions]
-kotlin = "2.1.0"
+kotlin = "2.3.20"
 agp = "8.7.3"
-compose-multiplatform = "1.8.2"
+compose-multiplatform = "1.10.0"
 coroutines = "1.9.0"
-room = "2.6.1"
-ksp = "2.1.0-1.0.29"
+room = "2.8.4"
+ksp = "2.3.7"
 sqlcipher = "4.14.1"
 sqlite = "2.4.0"
 lifecycle = "2.8.7"
@@ -14,11 +14,12 @@ security-crypto = "1.1.0-alpha06"
 koin = "4.1.1"
 ktor = "3.0.3"
 kotlinx-serialization = "1.7.3"
-kotlinx-datetime = "0.6.1"
+kotlinx-datetime = "0.7.1"
 sqliteJdbc = "3.47.1.0"
 slf4j = "2.0.16"
 mlkit-genai-prompt = "1.0.0-beta2"
 llamatik = "1.1.0"
+leap-sdk = "0.10.0-5-SNAPSHOT"
 
 [libraries]
 # Coroutines
@@ -76,6 +77,13 @@ mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "
 # Llamatik — KMP wrapper around llama.cpp with prebuilt JNI .so files. Used by
 # LlamatikNativeBridge to back downloaded GGUF inference on Android.
 llamatik = { module = "com.llamatik:library", version.ref = "llamatik" }
+
+# Liquid AI Leap SDK — runs LFM2 family models with grammar-constrained JSON
+# output. Used as a second runtime alongside Llamatik for the LFM2 Extract
+# entry. Snapshot-only as of 2026-04; pin to a specific timestamp version
+# once a stable release is published.
+leap-sdk = { module = "ai.liquid.leap:leap-sdk", version.ref = "leap-sdk" }
+leap-model-downloader = { module = "ai.liquid.leap:leap-model-downloader", version.ref = "leap-sdk" }
 
 # Desktop SQLite
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqliteJdbc" }
