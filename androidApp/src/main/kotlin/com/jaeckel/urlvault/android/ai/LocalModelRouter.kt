@@ -1,7 +1,13 @@
 package com.jaeckel.urlvault.android.ai
 
+import android.util.Log
 import com.jaeckel.urlvault.ai.LocalModelProvider
 import com.jaeckel.urlvault.ai.LocalModelRegistry
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+
+private const val TAG = "LocalModelRouter"
 
 /**
  * Selects which `LocalModelProvider` runs the bookmark AI calls. The selection
@@ -11,31 +17,129 @@ import com.jaeckel.urlvault.ai.LocalModelRegistry
  * Wired into `BookmarkViewModel` in place of the previous direct `AICoreService`
  * lambdas, so the selection is observable and changes the moment the user
  * toggles a model in Settings.
+ *
+ * Emits a [RouteEvent] to [events] every time an entry-point method is called,
+ * so the UI can surface (in DEBUG) which provider actually ran — useful for
+ * confirming an "activated" model is what's being used vs. silently falling
+ * back to AICore.
  */
 class LocalModelRouter(
     private val registry: LocalModelRegistry,
     private val activeIdsProvider: () -> Set<String>,
 ) {
-    private suspend fun pick(): LocalModelProvider? {
-        val active = activeIdsProvider()
-        val all = registry.snapshot()
-        val preferred = all.firstOrNull { it.id in active && runCatching { it.isReady() }.getOrDefault(false) }
-        if (preferred != null) return preferred
-        return all.firstOrNull { runCatching { it.isReady() }.getOrDefault(false) }
+    sealed class RouteEvent {
+        abstract val action: String
+        abstract val activeIds: Set<String>
+        abstract val readiness: List<Pair<String, Boolean>>
+
+        data class Picked(
+            override val action: String,
+            override val activeIds: Set<String>,
+            override val readiness: List<Pair<String, Boolean>>,
+            val providerId: String,
+            val providerName: String,
+            val reason: String,
+        ) : RouteEvent()
+
+        data class None(
+            override val action: String,
+            override val activeIds: Set<String>,
+            override val readiness: List<Pair<String, Boolean>>,
+            val reason: String,
+        ) : RouteEvent()
     }
 
+    private val _events = MutableSharedFlow<RouteEvent>(extraBufferCapacity = 16)
+    val events: SharedFlow<RouteEvent> = _events.asSharedFlow()
+
+    private data class PickResult(
+        val provider: LocalModelProvider?,
+        val reason: String,
+        val activeIds: Set<String>,
+        val readiness: List<Pair<String, Boolean>>,
+    )
+
+    private suspend fun pickWithReason(): PickResult {
+        val active = activeIdsProvider()
+        val all = registry.snapshot()
+
+        // Snapshot every provider's readiness once so we can both decide and log.
+        val readiness = all.map { p ->
+            p to runCatching { p.isReady() }.getOrElse { e ->
+                Log.w(TAG, "isReady() threw for ${p.id}: ${e.message}")
+                false
+            }
+        }
+        Log.i(
+            TAG,
+            "pick: activeIds=$active registered=${all.size} -> " +
+                readiness.joinToString { (p, r) -> "${p.id}(ready=$r)" },
+        )
+
+        val readinessSummary = readiness.map { (p, r) -> p.id to r }
+        val preferred = readiness.firstOrNull { (p, ready) -> ready && p.id in active }?.first
+        if (preferred != null) {
+            return PickResult(preferred, "active+ready", active, readinessSummary)
+        }
+
+        val fallback = readiness.firstOrNull { (_, ready) -> ready }?.first
+        val reason = when {
+            active.isEmpty() -> "no active set, fallback"
+            all.none { it.id in active } -> "active id not registered, fallback"
+            else -> "active not ready, fallback"
+        }
+        return PickResult(fallback, reason, active, readinessSummary)
+    }
+
+    private suspend fun pickAndEmit(action: String): LocalModelProvider? {
+        val result = pickWithReason()
+        val provider = result.provider
+        if (provider != null) {
+            _events.tryEmit(
+                RouteEvent.Picked(
+                    action = action,
+                    activeIds = result.activeIds,
+                    readiness = result.readiness,
+                    providerId = provider.id,
+                    providerName = provider.displayName,
+                    reason = result.reason,
+                ),
+            )
+        } else {
+            _events.tryEmit(
+                RouteEvent.None(
+                    action = action,
+                    activeIds = result.activeIds,
+                    readiness = result.readiness,
+                    reason = result.reason,
+                ),
+            )
+        }
+        return provider
+    }
+
+    /**
+     * Whether at least one registered provider can serve a request right now.
+     * Used by the UI to decide whether to drive bookmark generation through
+     * AI or fall back to the legacy non-AI extractor. Does not emit an event.
+     */
+    suspend fun hasReadyProvider(): Boolean = pickWithReason().provider != null
+
     suspend fun generateTags(url: String, title: String, content: String): Result<List<String>> {
-        val provider = pick() ?: return Result.failure(IllegalStateException("No ready local AI model"))
+        val provider = pickAndEmit("tags")
+            ?: return Result.failure(IllegalStateException("No ready local AI model"))
         return provider.generateTags(url, title, content)
     }
 
     suspend fun generateDescription(url: String, title: String): Result<String> {
-        val provider = pick() ?: return Result.failure(IllegalStateException("No ready local AI model"))
+        val provider = pickAndEmit("description")
+            ?: return Result.failure(IllegalStateException("No ready local AI model"))
         return provider.generateDescription(url, title)
     }
 
     suspend fun generateTitle(url: String): Result<String> {
-        val provider = pick() ?: return Result.failure(IllegalStateException("No ready local AI model"))
+        val provider = pickAndEmit("title")
+            ?: return Result.failure(IllegalStateException("No ready local AI model"))
         return provider.generateTitle(url)
     }
 }

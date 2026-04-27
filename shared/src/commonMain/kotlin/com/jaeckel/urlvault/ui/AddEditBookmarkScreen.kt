@@ -279,12 +279,19 @@ fun AddEditBookmarkScreen(
         }
     }
 
-    // Auto-trigger for prefilled URLs (share intent) — trigger immediately
-    LaunchedEffect(Unit) {
+    // Auto-trigger for prefilled URLs (share intent).
+    //
+    // Keyed on `aiCoreEnabled` so that if the AI gate flips from false to true
+    // *after* the first composition (typical race: `anyProviderReady` is
+    // computed asynchronously via `produceState` and starts false; the real
+    // readiness arrives ~100ms later when `LlamaBridge.getModelPath("probe")`
+    // resolves the lazy availability check), we re-fire as AI. `force = true`
+    // bypasses the per-URL dup guard so the second pass actually runs.
+    LaunchedEffect(prefilledUrl, aiCoreEnabled) {
         if (!isEditMode && prefilledUrl != null) {
             val targetUrl = normalizeUrlForAi(prefilledUrl)
             if (targetUrl != null) {
-                triggerAiForUrl(targetUrl)
+                triggerAiForUrl(targetUrl, force = true)
             }
         }
     }

@@ -7,10 +7,10 @@ import com.jaeckel.urlvault.ai.ModelComparisonRunner
 import com.jaeckel.urlvault.android.ai.AICoreService
 import com.jaeckel.urlvault.android.ai.AICoreServiceAdapter
 import com.jaeckel.urlvault.android.ai.LlamaCppNativeBridge
+import com.jaeckel.urlvault.android.ai.LlamatikNativeBridge
 import com.jaeckel.urlvault.android.ai.LocalModelPreferences
 import com.jaeckel.urlvault.android.ai.LocalModelRouter
 import com.jaeckel.urlvault.android.ai.ModelDownloadManager
-import com.jaeckel.urlvault.android.ai.NoOpLlamaCppNativeBridge
 import com.jaeckel.urlvault.android.database.AppDatabase
 import com.jaeckel.urlvault.android.database.DatabaseKeyManager
 import com.jaeckel.urlvault.android.database.RoomBookmarkRepository
@@ -93,9 +93,9 @@ val appModule = module {
         registry
     }
 
-    // Default no-op bridge — no JNI is shipped in this repo. Replace with a
-    // real implementation once a llama.cpp Android wrapper is added.
-    single<LlamaCppNativeBridge> { NoOpLlamaCppNativeBridge }
+    // llama.cpp via Llamatik's prebuilt JNI .so files. ABI is filtered to
+    // arm64-v8a in androidApp/build.gradle.kts to keep APK size in check.
+    single<LlamaCppNativeBridge> { LlamatikNativeBridge() }
 
     // Cross-provider comparison helper (used by both DEBUG logcat benchmark
     // and the user-visible ModelComparisonScreen)

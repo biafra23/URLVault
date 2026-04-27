@@ -2,6 +2,7 @@ package com.jaeckel.urlvault.android
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -9,8 +10,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.jaeckel.urlvault.ai.AiProviderIds
 import com.jaeckel.urlvault.ai.ModelCatalog
 import com.jaeckel.urlvault.ai.ModelCatalogEntry
 import com.jaeckel.urlvault.ai.ModelComparisonRunner
@@ -18,6 +21,7 @@ import com.jaeckel.urlvault.ai.ModelRuntime
 import com.jaeckel.urlvault.android.ai.AICoreService
 import com.jaeckel.urlvault.android.ai.AICoreStatus
 import com.jaeckel.urlvault.android.ai.LocalModelPreferences
+import com.jaeckel.urlvault.android.ai.LocalModelRouter
 import com.jaeckel.urlvault.android.ai.ModelDownloadManager
 import com.jaeckel.urlvault.android.sync.AndroidBitwardenPreferences
 import com.jaeckel.urlvault.model.Bookmark
@@ -44,6 +48,7 @@ class MainActivity : ComponentActivity() {
     private val localModelPrefs: LocalModelPreferences by inject()
     private val modelDownloadManager: ModelDownloadManager by inject()
     private val modelComparisonRunner: ModelComparisonRunner by inject()
+    private val localModelRouter: LocalModelRouter by inject()
 
     /** Hoisted so onNewIntent can update navigation state. */
     private var currentScreen by mutableStateOf<Screen>(Screen.List)
@@ -69,6 +74,29 @@ class MainActivity : ComponentActivity() {
                     aiCoreService.initialize()
                 }
 
+                // DEBUG-only: surface which provider actually served each AI call
+                // so we can confirm an "activated" model is what's being used vs.
+                // silently falling back to AICore.
+                if (BuildConfig.DEBUG) {
+                    LaunchedEffect(Unit) {
+                        localModelRouter.events.collect { event ->
+                            val readinessLine = event.readiness.joinToString { (id, r) ->
+                                "${id.substringAfter(':')}=${if (r) "✓" else "✗"}"
+                            }
+                            val activeLine = if (event.activeIds.isEmpty()) "active=none"
+                                else "active=${event.activeIds.joinToString { it.substringAfter(':') }}"
+                            val head = when (event) {
+                                is LocalModelRouter.RouteEvent.Picked ->
+                                    "AI ${event.action}: ${event.providerName}\n${event.reason}"
+                                is LocalModelRouter.RouteEvent.None ->
+                                    "AI ${event.action}: NO PROVIDER\n${event.reason}"
+                            }
+                            val text = "$head\n$activeLine\n$readinessLine"
+                            Toast.makeText(this@MainActivity, text, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+
                 // Show toggle for any status except Unknown (still probing)
                 val aiCoreAvailable = aiCoreStatus !is AICoreStatus.Unknown && aiCoreStatus !is AICoreStatus.Unavailable
                 val aiCoreStatusText = when (aiCoreStatus) {
@@ -76,6 +104,16 @@ class MainActivity : ComponentActivity() {
                     is AICoreStatus.Available -> "On-device AI is ready."
                     is AICoreStatus.Failed -> "AI model error: ${(aiCoreStatus as AICoreStatus.Failed).message}"
                     else -> null
+                }
+
+                // True when AICore OR any downloaded local model is ready to serve a request.
+                // Re-polled whenever AICore status, downloads, or the active-IDs set changes,
+                // so the AI path turns on as soon as any provider becomes usable.
+                val anyProviderReady by produceState(
+                    initialValue = aiCoreStatus is AICoreStatus.Available,
+                    aiCoreStatus, downloadStates, activeIds,
+                ) {
+                    value = localModelRouter.hasReadyProvider()
                 }
 
                 when (val screen = currentScreen) {
@@ -99,7 +137,7 @@ class MainActivity : ComponentActivity() {
                             autoTagState = autoTagState,
                             onAutoTag = { url -> bookmarkViewModel.fetchAutoTags(url) },
                             onAutoTagConsumed = { bookmarkViewModel.clearAutoTagState() },
-                            aiCoreEnabled = aiCoreEnabled && aiCoreStatus is AICoreStatus.Available,
+                            aiCoreEnabled = aiCoreEnabled && anyProviderReady,
                             aiTagState = aiTagState,
                             aiDescriptionState = aiDescriptionState,
                             aiTitleState = aiTitleState,
@@ -138,6 +176,17 @@ class MainActivity : ComponentActivity() {
                                 aiCoreEnabled = enabled
                                 bitwardenPrefs.saveAiCoreEnabled(enabled)
                             },
+                            onToggleAiCoreActive = { active ->
+                                // Same radio-button semantics as the Llama toggles —
+                                // selecting a provider clears any others.
+                                activeIds = if (active) setOf(AiProviderIds.AICORE)
+                                    else activeIds - AiProviderIds.AICORE
+                                localModelPrefs.saveActiveIds(activeIds)
+                                android.util.Log.i(
+                                    "MainActivity",
+                                    "onToggleAiCoreActive: active=$active -> activeIds=$activeIds",
+                                )
+                            },
                             localModelCatalog = catalog,
                             localModelStates = downloadStates,
                             activeModelIds = activeIds,
@@ -151,8 +200,15 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             onToggleModelActive = { entry, active ->
-                                activeIds = if (active) activeIds + entry.id else activeIds - entry.id
+                                // Llamatik's LlamaBridge is a singleton — only one model
+                                // can be loaded at a time. Activating one clears the rest
+                                // so the toggle behaves like a radio button.
+                                activeIds = if (active) setOf(entry.id) else activeIds - entry.id
                                 localModelPrefs.saveActiveIds(activeIds)
+                                android.util.Log.i(
+                                    "MainActivity",
+                                    "onToggleModelActive: id=${entry.id} active=$active -> activeIds=$activeIds",
+                                )
                             },
                             onAddCustomModel = { hfRepo, hfFile, displayName ->
                                 val newEntry = ModelCatalogEntry(

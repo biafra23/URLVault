@@ -15,8 +15,9 @@ private const val MAX_DESCRIPTION_LENGTH = 300
  * `LocalModelProvider` backed by a downloaded GGUF run through a llama.cpp
  * native wrapper (see [LlamaCppNativeBridge]).
  *
- * Prompt templates intentionally mirror those in `AICoreService` so output
- * shape is comparable between Gemini Nano and any open-source GGUF.
+ * Plain free-text prompts only — Llamatik's grammar-constrained JSON entry
+ * was removed (see ferranpons/Llamatik#90); structured-output models will
+ * use a separate runtime (LeapSDK) once wired up.
  */
 class LlamaCppModelProvider(
     override val id: String,
@@ -30,14 +31,16 @@ class LlamaCppModelProvider(
 
     private val contentExtractor = WebPageContentExtractor(httpClient)
     private val mutex = Mutex()
-    private var loaded = false
 
     override suspend fun isReady(): Boolean = bridge.isAvailable()
 
+    /**
+     * Always delegates to the bridge. The bridge owns the singleton
+     * "currently-loaded model" state — a per-provider `loaded` flag would
+     * desynchronize when a second provider's load swaps the singleton.
+     */
     private suspend fun ensureLoaded() {
-        if (loaded) return
         bridge.load(modelFile)
-        loaded = true
     }
 
     override suspend fun generateTags(url: String, title: String, content: String): Result<List<String>> = runCatching {
@@ -56,23 +59,12 @@ class LlamaCppModelProvider(
             if (content.isNotBlank()) appendLine("User description: $content")
             if (pageSummary.isNotBlank()) appendLine("Page summary: $pageSummary")
         }
-
         val text = mutex.withLock {
             ensureLoaded()
-            bridge.generate(prompt, maxTokens = 256)
+            bridge.generate(prompt, maxTokens = 96)
         }
-
         Log.v(TAG, "[$id] tags raw: $text")
-
-        text.split(Regex("[,\\n;]+"))
-            .map { raw ->
-                raw.trim().lowercase()
-                    .replace(Regex("[^a-z0-9\\s-]"), "").trim()
-            }
-            .filter { it.isNotBlank() && it.length in 2..30 }
-            .distinct()
-            .take(6)
-            .ifEmpty { error("Model returned no usable tags") }
+        parseTagsFreeText(text)
     }
 
     override suspend fun generateDescription(url: String, title: String): Result<String> = runCatching {
@@ -92,10 +84,9 @@ class LlamaCppModelProvider(
                 appendLine("If you cannot determine what the page is about, respond with: Unable to generate description.")
             }
         }
-
         val text = mutex.withLock {
             ensureLoaded()
-            bridge.generate(prompt, maxTokens = 256)
+            bridge.generate(prompt, maxTokens = 96)
         }
         validateDescription(text.trim())
     }
@@ -117,17 +108,26 @@ class LlamaCppModelProvider(
         }
         val text = mutex.withLock {
             ensureLoaded()
-            bridge.generate(prompt, maxTokens = 256)
+            bridge.generate(prompt, maxTokens = 96)
         }
         text.trim().removeSurrounding("\"")
     }
 
+    private fun parseTagsFreeText(text: String): List<String> {
+        return text.split(Regex("[,\\n;]+"))
+            .map { raw ->
+                raw.trim().lowercase()
+                    .replace(Regex("[^a-z0-9\\s-]"), "").trim()
+            }
+            .filter { it.isNotBlank() && it.length in 2..30 }
+            .distinct()
+            .take(6)
+            .ifEmpty { error("Model returned no usable tags") }
+    }
+
     suspend fun close() {
         mutex.withLock {
-            if (loaded) {
-                runCatching { bridge.unload() }
-                loaded = false
-            }
+            runCatching { bridge.unload() }
             contentExtractor.close()
         }
     }

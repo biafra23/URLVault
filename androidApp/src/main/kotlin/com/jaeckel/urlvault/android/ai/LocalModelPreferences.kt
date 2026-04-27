@@ -39,11 +39,13 @@ class LocalModelPreferences(context: Context) {
     }
 
     fun loadActiveIds(): Set<String> {
-        return prefs.getStringSet(KEY_ACTIVE_IDS, emptySet()) ?: emptySet()
+        // Defensive copy: SharedPreferences returns a reference to its cached set
+        // and mutating it can poison subsequent reads.
+        return prefs.getStringSet(KEY_ACTIVE_IDS, emptySet())?.toSet() ?: emptySet()
     }
 
     fun saveActiveIds(ids: Set<String>) {
-        prefs.edit().putStringSet(KEY_ACTIVE_IDS, ids).apply()
+        prefs.edit().putStringSet(KEY_ACTIVE_IDS, ids.toSet()).apply()
     }
 
     fun loadHfToken(): String? = prefs.getString(KEY_HF_TOKEN, null)

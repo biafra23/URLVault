@@ -229,7 +229,10 @@ class ModelDownloadManager(
     }
 
     private fun registerProvider(entry: ModelCatalogEntry, file: File) {
-        if (entry.runtime != ModelRuntime.LLAMA_CPP) return
+        if (entry.runtime != ModelRuntime.LLAMA_CPP) {
+            Log.d(TAG, "registerProvider: skip ${entry.id} (runtime=${entry.runtime})")
+            return
+        }
         val provider = LlamaCppModelProvider(
             id = entry.id,
             displayName = entry.displayName,
@@ -238,5 +241,9 @@ class ModelDownloadManager(
             httpClient = sharedHttp,
         )
         registry.register(provider)
+        Log.i(
+            TAG,
+            "registerProvider: ${entry.id} -> ${file.absolutePath} (${file.length()} bytes)",
+        )
     }
 }

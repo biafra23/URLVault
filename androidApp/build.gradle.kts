@@ -41,6 +41,15 @@ android {
         versionName = appVersion
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Llamatik ships native libs for arm64-v8a, armeabi-v7a, x86, x86_64.
+        // libllama_jni.so alone is ~23 MB per ABI; restricting to arm64-v8a cuts
+        // ~90 MB of unused code from the APK. Every supported Android device
+        // (minSdk 31) is arm64-v8a-capable. Add x86_64 here if you need emulator
+        // support for local development.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     signingConfigs {
@@ -179,4 +188,16 @@ dependencies {
 
     // ML Kit GenAI Prompt API (Gemini Nano on-device)
     implementation(libs.mlkit.genai.prompt)
+
+    // Llamatik (llama.cpp via JNI; backs LlamatikNativeBridge).
+    // Local build from `ferranpons/Llamatik` main (closest tag: v1.1.1) with
+    // two patches on top — see filename suffix `+localfix`:
+    //   1. Defensive catch around the JSON-stream JNI entries — fixes the
+    //      SIGABRT in `nativeGenerateJsonStream` reported as Llamatik#90.
+    //   2. Renamed llama.cpp shared libraries (libllamatik_llama.so etc.) so
+    //      this AAR can coexist in the same APK with another SDK (e.g.
+    //      Leap, ai.liquid.leap:leap-sdk-android) that bundles its own
+    //      libllama.so / libggml*.so without filename collisions.
+    // Swap back to `libs.llamatik` once both fixes are published upstream.
+    implementation(files("libs/llamatik-v1.1.1-main+localfix.aar"))
 }

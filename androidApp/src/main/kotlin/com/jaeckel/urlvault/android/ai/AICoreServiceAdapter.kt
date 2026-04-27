@@ -1,5 +1,6 @@
 package com.jaeckel.urlvault.android.ai
 
+import com.jaeckel.urlvault.ai.AiProviderIds
 import com.jaeckel.urlvault.ai.LocalModelProvider
 import com.jaeckel.urlvault.ai.ModelRuntime
 
@@ -15,8 +16,8 @@ import com.jaeckel.urlvault.ai.ModelRuntime
 class AICoreServiceAdapter(
     private val service: AICoreService,
 ) : LocalModelProvider {
-    override val id: String = "mlkit:gemini-nano-active"
-    override val displayName: String = "Google Gemini Nano (on-device)"
+    override val id: String = AiProviderIds.AICORE
+    override val displayName: String = "Google Gemini Nano (AICore)"
     override val runtime: ModelRuntime = ModelRuntime.ML_KIT
 
     override suspend fun isReady(): Boolean = service.status.value is AICoreStatus.Available

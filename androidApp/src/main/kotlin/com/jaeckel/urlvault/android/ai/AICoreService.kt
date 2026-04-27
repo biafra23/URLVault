@@ -13,9 +13,14 @@ import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generateContentRequest
 import com.google.mlkit.genai.prompt.generationConfig
 import com.google.mlkit.genai.prompt.modelConfig
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 private const val TAG = "AICoreService"
 
@@ -43,6 +48,7 @@ class AICoreService(httpClient: HttpClient) {
     private var generativeModel: GenerativeModel? = null
     private val contentExtractor = WebPageContentExtractor(httpClient)
 
+    private val initMutex = Mutex()
     private val _status = MutableStateFlow<AICoreStatus>(AICoreStatus.Unknown)
     val status: StateFlow<AICoreStatus> = _status.asStateFlow()
 
@@ -89,86 +95,100 @@ class AICoreService(httpClient: HttpClient) {
      * best supported variant.
      */
     suspend fun initialize() {
-        try {
-            Log.d(TAG, "Initializing ML Kit GenAI Prompt API (Gemini Nano)...")
-            
-            // Preference order for models: try to find the most capable one supported by the device.
-            val configs = listOf(
-                ModelReleaseStage.PREVIEW to ModelPreference.FULL,
-                ModelReleaseStage.PREVIEW to ModelPreference.FAST,
-                ModelReleaseStage.STABLE to ModelPreference.FULL,
-                ModelReleaseStage.STABLE to ModelPreference.FAST
-            )
-            
-            var successfulModel: GenerativeModel? = null
-            
-            for ((stage, pref) in configs) {
-                var model: GenerativeModel? = null
-                try {
-                    model = createModelClient(stage, pref)
-                    val statusValue = model.checkStatus()
-                    
-                    Log.d(TAG, "Config Stage=${stage.toStageString()}, Pref=${pref.toPrefString()} has status: ${statusValue.toStatusString()}")
-                    
-                    if (statusValue != FeatureStatus.UNAVAILABLE) {
-                        Log.i(TAG, "Matched supported model: Stage=${stage.toStageString()}, Pref=${pref.toPrefString()} (Status=${statusValue.toStatusString()})")
-                        
-                        try {
-                            val baseModelName = model.getBaseModelName()
-                            Log.i(TAG, "Base Model Name: $baseModelName")
-                        } catch (_: Exception) {
-                            // Not all AICore versions support this call yet
-                            Log.v(TAG, "Base model name not available for this variant")
-                        }
-
-                        successfulModel = model
-                        break
-                    } else {
-                        model.close()
-                    }
-                } catch (e: Exception) {
-                    val statusStr = try {
-                        model?.checkStatus()?.toStatusString() ?: "UNINITIALIZED"
-                    } catch (_: Exception) {
-                        "ERROR_DURING_CHECK"
-                    }
-                    Log.w(TAG, "Config Stage=${stage.toStageString()}, Pref=${pref.toPrefString()} (Status=$statusStr) is unsupported or threw error: ${e.message}")
-                    model?.close()
-                }
-            }
-
-            val model = successfulModel
-            if (model == null) {
-                Log.w(TAG, "Gemini Nano is not supported by any configuration on this device")
-                _status.value = AICoreStatus.Unavailable
+        initMutex.withLock {
+            if (generativeModel != null && _status.value is AICoreStatus.Available) {
+                Log.v(TAG, "Already initialized")
                 return
             }
 
-            generativeModel = model
-            
-            // Final status check to handle downloads vs availability
-            when (model.checkStatus()) {
-                FeatureStatus.DOWNLOADABLE, FeatureStatus.DOWNLOADING -> {
-                    collectDownload(model)
+            // Wrap the core probing logic in NonCancellable to prevent internal SDK crashes
+            // in CompletionHandlerException (invokeOnCancellation) when the Activity/Scope
+            // is destroyed during the status check / client creation phase.
+            withContext(NonCancellable) {
+                try {
+                    Log.d(TAG, "Initializing ML Kit GenAI Prompt API (Gemini Nano)...")
+
+                    // Preference order for models: try to find the most capable one supported by the device.
+                    val configs = listOf(
+                        ModelReleaseStage.PREVIEW to ModelPreference.FULL,
+                        ModelReleaseStage.PREVIEW to ModelPreference.FAST,
+                        ModelReleaseStage.STABLE to ModelPreference.FULL,
+                        ModelReleaseStage.STABLE to ModelPreference.FAST
+                    )
+
+                    var successfulModel: GenerativeModel? = null
+
+                    for ((stage, pref) in configs) {
+                        var model: GenerativeModel? = null
+                        try {
+                            model = createModelClient(stage, pref)
+                            val statusValue = model.checkStatus()
+
+                            Log.d(TAG, "Config Stage=${stage.toStageString()}, Pref=${pref.toPrefString()} has status: ${statusValue.toStatusString()}")
+
+                            if (statusValue != FeatureStatus.UNAVAILABLE) {
+                                Log.i(TAG, "Matched supported model: Stage=${stage.toStageString()}, Pref=${pref.toPrefString()} (Status=${statusValue.toStatusString()})")
+
+                                try {
+                                    val baseModelName = model.getBaseModelName()
+                                    Log.i(TAG, "Base Model Name: $baseModelName")
+                                } catch (_: Exception) {
+                                    // Not all AICore versions support this call yet
+                                    Log.v(TAG, "Base model name not available for this variant")
+                                }
+
+                                successfulModel = model
+                                break
+                            } else {
+                                model.close()
+                            }
+                        } catch (e: Exception) {
+                            val statusStr = try {
+                                model?.checkStatus()?.toStatusString() ?: "UNINITIALIZED"
+                            } catch (_: Exception) {
+                                "ERROR_DURING_CHECK"
+                            }
+                            Log.w(TAG, "Config Stage=${stage.toStageString()}, Pref=${pref.toPrefString()} (Status=$statusStr) is unsupported or threw error: ${e.message}")
+                            model?.close()
+                        }
+                    }
+
+                    val model = successfulModel
+                    if (model == null) {
+                        Log.w(TAG, "Gemini Nano is not supported by any configuration on this device")
+                        _status.value = AICoreStatus.Unavailable
+                        return@withContext
+                    }
+
+                    generativeModel = model
+
+                    // Final status check to handle downloads vs availability
+                    when (model.checkStatus()) {
+                        FeatureStatus.DOWNLOADABLE, FeatureStatus.DOWNLOADING -> {
+                            collectDownload(model)
+                        }
+
+                        FeatureStatus.AVAILABLE -> {
+                            Log.d(TAG, "Model available, warming up...")
+                            model.warmup()
+                            _status.value = AICoreStatus.Available
+                        }
+
+                        else -> {
+                            _status.value = AICoreStatus.Unavailable
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "ML Kit GenAI initialization error: ${e.message}", e)
+
+                    // Error 606 (FEATURE_NOT_FOUND) often means AICore is present but this specific 
+                    // feature (Prompt API / Feature 647) is not available or supported on this device.
+                    if (e.message?.contains("606") == true || e.message?.contains("FEATURE_NOT_FOUND") == true) {
+                        _status.value = AICoreStatus.Unavailable
+                    } else {
+                        _status.value = AICoreStatus.Failed(e.message ?: "Initialization failed")
+                    }
                 }
-                FeatureStatus.AVAILABLE -> {
-                    Log.d(TAG, "Model available, warming up...")
-                    model.warmup()
-                    _status.value = AICoreStatus.Available
-                }
-                else -> {
-                    _status.value = AICoreStatus.Unavailable
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "ML Kit GenAI initialization error: ${e.message}", e)
-            
-            // Error 606 (FEATURE_NOT_FOUND) often means AICore is present but this specific 
-            // feature (Prompt API / Feature 647) is not available or supported on this device.
-            if (e.message?.contains("606") == true || e.message?.contains("FEATURE_NOT_FOUND") == true) {
-                _status.value = AICoreStatus.Unavailable
-            } else {
-                _status.value = AICoreStatus.Failed(e.message ?: "Initialization failed")
             }
         }
     }
@@ -329,13 +349,19 @@ class AICoreService(httpClient: HttpClient) {
 
     private suspend fun runInference(prompt: String): String {
         val model = getOrCreateModel()
-        val response = model.generateContent(
-            generateContentRequest(TextPart(prompt)) {
-                temperature = 0.0f
-                topK = 1
-                maxOutputTokens = 256
-            }
-        )
+        // Wrap generation in NonCancellable to prevent internal SDK crashes 
+        // (CompletionHandlerException in invokeOnCancellation) when the 
+        // calling coroutine is cancelled. The SDK's current beta has 
+        // stability issues during rapid cancellation of inference tasks.
+        val response = withContext(NonCancellable) {
+            model.generateContent(
+                generateContentRequest(TextPart(prompt)) {
+                    temperature = 0.0f
+                    topK = 1
+                    maxOutputTokens = 256
+                }
+            )
+        }
         val candidate = response.candidates.firstOrNull()
             ?: error("Empty response from AI model")
         return candidate.text.ifBlank { error("Empty response from AI model") }
@@ -359,6 +385,7 @@ class AICoreService(httpClient: HttpClient) {
         Log.i(TAG, "--- Gemini Nano Benchmark Start ---")
         for (stage in stages) {
             for (pref in preferences) {
+                var model: GenerativeModel? = null
                 try {
                     val config = generationConfig {
                         modelConfig = modelConfig {
@@ -366,13 +393,14 @@ class AICoreService(httpClient: HttpClient) {
                             preference = pref
                         }
                     }
-                    val model = Generation.getClient(config)
+                    model = Generation.getClient(config)
                     
                     val statusValue = model.checkStatus()
                     
                     if (statusValue != FeatureStatus.AVAILABLE) {
                         Log.i(TAG, "BENCHMARK | Stage=${stage.toStageString()} | Pref=${pref.toPrefString()} | Status=${statusValue.toStatusString()} | Skip inference")
                         model.close()
+                        model = null
                         continue
                     }
 
@@ -392,15 +420,18 @@ class AICoreService(httpClient: HttpClient) {
                     
                     Log.i(TAG, "BENCHMARK | Stage=${stage.toStageString()} | Pref=${pref.toPrefString()} | Status=${statusValue.toStatusString()} | Time=${duration}ms | Result=$resultText")
                     
-                    model.close()
                 } catch (e: Exception) {
                     val statusStr = try {
-                        // Re-check status if possible, but keep in mind 'model' might be closed or invalid
-                        "ERROR_DURING_RUN"
+                        // Re-check status if possible
+                        model?.checkStatus()?.toStatusString() ?: "UNKNOWN"
                     } catch (_: Exception) {
-                        "UNKNOWN"
+                        "ERROR"
                     }
                     Log.w(TAG, "BENCHMARK | Stage=${stage.toStageString()} | Pref=${pref.toPrefString()} | Status=$statusStr | Failed=${e.message}")
+                } finally {
+                    try {
+                        model?.close()
+                    } catch (_: Exception) {}
                 }
             }
         }

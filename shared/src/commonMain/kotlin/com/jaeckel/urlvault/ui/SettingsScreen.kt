@@ -45,6 +45,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import com.jaeckel.urlvault.ai.AiProviderIds
 import com.jaeckel.urlvault.ai.ModelCatalogEntry
 import com.jaeckel.urlvault.ai.ModelDownloadState
 import com.jaeckel.urlvault.ai.ModelRuntime
@@ -67,6 +68,7 @@ fun SettingsScreen(
     aiCoreEnabled: Boolean = false,
     aiCoreStatusText: String? = null,
     onAiCoreEnabledChanged: (Boolean) -> Unit = {},
+    onToggleAiCoreActive: (Boolean) -> Unit = {},
     localModelCatalog: List<ModelCatalogEntry> = emptyList(),
     localModelStates: Map<String, ModelDownloadState> = emptyMap(),
     activeModelIds: Set<String> = emptySet(),
@@ -339,71 +341,85 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            if (aiCoreAvailable) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("AI-powered suggestions (on-device)", style = MaterialTheme.typography.bodyLarge)
-                    Switch(
-                        checked = aiCoreEnabled,
-                        onCheckedChange = onAiCoreEnabledChanged
-                    )
-                }
-                Text(
-                    text = "Uses on-device AI to generate tags and descriptions. No data leaves your device.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (aiCoreStatusText != null) {
-                    Text(
-                        text = aiCoreStatusText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider()
 
-            // --- Local AI Models Section ---
+            // --- AI Tagging Section ---
+            // One master toggle gates AI generation. When on, the user picks
+            // exactly one provider — AICore (when available) is shown as the
+            // top option, followed by the downloadable local models. AICore
+            // and Llama models share the same activeIds set; the toggle behaves
+            // like a radio button across the whole list.
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Local AI Models",
+                text = "AI Tagging",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary
             )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Enable AI tagging", style = MaterialTheme.typography.bodyLarge)
+                Switch(
+                    checked = aiCoreEnabled,
+                    onCheckedChange = onAiCoreEnabledChanged
+                )
+            }
             Text(
-                text = "Download open models from Hugging Face to run on-device. " +
-                    "Bookmark AI uses the models you mark active; the comparison screen runs all of them.",
+                text = "Generate titles, descriptions, and tags for new bookmarks " +
+                    "using an on-device model. No data leaves your device.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            localModelCatalog.forEach { entry ->
-                val state = localModelStates[entry.id] ?: ModelDownloadState.Idle
-                ModelCatalogRow(
-                    entry = entry,
-                    state = state,
-                    isActive = entry.id in activeModelIds,
-                    onDownload = { onDownloadModel(entry) },
-                    onCancel = { onCancelModelDownload(entry) },
-                    onDelete = { onDeleteModel(entry) },
-                    onToggleActive = { onToggleModelActive(entry, it) },
+            if (aiCoreEnabled) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Choose model",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
-            }
+                Text(
+                    text = "Selecting a model deselects the others. If none is selected, " +
+                        "the first available model is used automatically.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
-            CustomModelEntryRow(onAdd = onAddCustomModel)
+                if (aiCoreAvailable) {
+                    AiCoreProviderRow(
+                        statusText = aiCoreStatusText,
+                        isActive = AiProviderIds.AICORE in activeModelIds,
+                        onToggleActive = onToggleAiCoreActive,
+                    )
+                }
 
-            Button(
-                onClick = onOpenComparison,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Run model comparison")
+                localModelCatalog.forEach { entry ->
+                    val state = localModelStates[entry.id] ?: ModelDownloadState.Idle
+                    ModelCatalogRow(
+                        entry = entry,
+                        state = state,
+                        isActive = entry.id in activeModelIds,
+                        onDownload = { onDownloadModel(entry) },
+                        onCancel = { onCancelModelDownload(entry) },
+                        onDelete = { onDeleteModel(entry) },
+                        onToggleActive = { onToggleModelActive(entry, it) },
+                    )
+                }
+
+                CustomModelEntryRow(onAdd = onAddCustomModel)
+
+                Button(
+                    onClick = onOpenComparison,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Run model comparison")
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -493,6 +509,58 @@ private fun AutocompleteTextField(
                         contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Provider row for the AICore (Gemini Nano) entry. Shares the visual shape of
+ * `ModelCatalogRow` so AICore reads as one option among many, but omits the
+ * download/delete actions because the model is OS-managed.
+ */
+@Composable
+private fun AiCoreProviderRow(
+    statusText: String?,
+    isActive: Boolean,
+    onToggleActive: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Google Gemini Nano (AICore)",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "ml_kit • on-device • bundled with Android (no download)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = statusText ?: "Status unknown",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Active", style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.size(4.dp))
+                Switch(
+                    checked = isActive,
+                    onCheckedChange = onToggleActive,
+                )
             }
         }
     }
