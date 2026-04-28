@@ -164,11 +164,10 @@ class LeapModelProvider(
 
     override suspend fun generateTitle(url: String): Result<String> = runCatching {
         val pageContent = runCatching { contentExtractor.extract(url) }.getOrNull()
-            ?: error("Could not fetch page content")
-        val nativeTitle = pageContent.bestTitle()
+        val nativeTitle = pageContent?.bestTitle()
         if (!nativeTitle.isNullOrBlank()) return@runCatching nativeTitle
 
-        val pageSummary = pageContent.bestSummary(MAX_PAGE_CONTENT_LENGTH)
+        val pageSummary = pageContent?.bestSummary(MAX_PAGE_CONTENT_LENGTH) ?: ""
         val schema = """
             {
               "type": "object",

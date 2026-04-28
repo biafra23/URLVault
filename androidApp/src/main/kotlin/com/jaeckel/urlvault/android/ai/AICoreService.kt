@@ -315,24 +315,22 @@ class AICoreService(httpClient: HttpClient) {
      */
     suspend fun generateTitle(url: String): Result<String> {
         return runCatching {
-            val pageContent = fetchPageContent(url) ?: error("Could not fetch page content")
-            val nativeTitle = pageContent.bestTitle()
+            val pageContent = fetchPageContent(url)
+            val nativeTitle = pageContent?.bestTitle()
 
             if (!nativeTitle.isNullOrBlank()) {
                 return@runCatching nativeTitle
             }
 
-            // Fallback to AI generation
-            val pageSummary = pageContent.bestSummary(MAX_PAGE_CONTENT_LENGTH)
+            // Fallback to AI generation — works with or without page content
+            val pageSummary = pageContent?.bestSummary(MAX_PAGE_CONTENT_LENGTH) ?: ""
             val prompt = buildString {
                 appendLine("Generate a short, descriptive title for this bookmark (max 6 words).")
                 appendLine("Return ONLY the title, nothing else.")
                 appendLine()
                 appendLine("Context data:")
                 appendLine("URL: $url")
-                if (pageSummary.isNotBlank()) {
-                    appendLine("Page summary: $pageSummary")
-                }
+                if (pageSummary.isNotBlank()) appendLine("Page summary: $pageSummary")
             }
             runInference(prompt).trim().removeSurrounding("\"")
         }
