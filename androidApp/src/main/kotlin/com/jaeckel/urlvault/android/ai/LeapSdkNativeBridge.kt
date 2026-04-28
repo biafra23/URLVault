@@ -1,11 +1,10 @@
 package com.jaeckel.urlvault.android.ai
 
 import android.util.Log
+import ai.liquid.leap.GenerationOptions
 import ai.liquid.leap.LeapClient
 import ai.liquid.leap.ModelRunner
-import ai.liquid.leap.message.ChatMessage
 import ai.liquid.leap.message.MessageResponse
-import ai.liquid.leap.message.UserChatMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -15,26 +14,20 @@ private const val TAG = "LeapSdkNativeBridge"
 
 /**
  * `LeapNativeBridge` backed by Liquid AI's LeapSDK
- * (`ai.liquid.leap:leap-sdk`). LeapSDK ships native libraries in its AAR;
- * we never write JNI in this repo.
+ * (`ai.liquid.leap:leap-sdk:0.10.0-5-SNAPSHOT`). LeapSDK ships native libraries
+ * in its AAR; we never write JNI in this repo.
  *
- * Like the Llamatik bridge, this owns a single process-wide `ModelRunner`
- * and serializes load/generate/unload behind a [Mutex]. Per-provider load
- * tracking lives elsewhere — the bridge is the source of truth.
+ * Each call creates a fresh `Conversation` from the loaded `ModelRunner` —
+ * the three bookmark AI calls (tags / description / title) are logically
+ * independent extractions, not a chat dialogue, so we explicitly avoid
+ * carrying history across them.
  *
- * SDK note: the snapshot 0.10.0-5 publishes
- *   - `LeapClient.loadModel(filePath: String): ModelRunner`
- *   - `ModelRunner.generateResponse(message: ChatMessage): Flow<MessageResponse>`
- *   - `ModelRunner.unload()` (closes native handles)
- * If the user upgrades and method/class names shift, only this file needs
- * to follow upstream — the bridge interface stays stable.
- *
- * Structured output: rather than depending on a particular Constraints DSL
- * (which has shifted across snapshots), [generateStructured] inlines the
- * JSON schema into the prompt and asks the model to obey it. LFM2 1.2B
- * Extract is fine-tuned for this and reliably emits clean JSON; downstream
- * parsing in `LeapModelProvider` handles the leading/trailing whitespace
- * and any stray prose.
+ * Structured output goes through `GenerationOptions.jsonSchemaConstraint`,
+ * which Leap turns into a grammar-constrained sampler at the token level
+ * (and additionally injects the schema into the system prompt for semantic
+ * guidance — see `injectSchemaIntoPrompt`). The returned text is a JSON
+ * value of the requested shape; downstream parsing in `LeapModelProvider`
+ * just needs to handle whitespace.
  */
 class LeapSdkNativeBridge : LeapNativeBridge {
 
@@ -42,10 +35,7 @@ class LeapSdkNativeBridge : LeapNativeBridge {
     private var runner: ModelRunner? = null
     private var currentPath: String? = null
 
-    private val available: Boolean by lazy {
-        // We can't probe the SDK without a model file, so this flag really
-        // means "the LeapClient class loaded without a NoClassDefFoundError".
-        // load() itself surfaces any per-device runtime issues.
+    private val classLoaderProbe: Boolean by lazy {
         try {
             Class.forName("ai.liquid.leap.LeapClient")
             Log.i(TAG, "LeapSDK class loaded — runtime considered available")
@@ -56,7 +46,7 @@ class LeapSdkNativeBridge : LeapNativeBridge {
         }
     }
 
-    override fun isAvailable(): Boolean = available
+    override fun isAvailable(): Boolean = classLoaderProbe
 
     override suspend fun load(absolutePath: String) {
         mutex.withLock {
@@ -66,8 +56,8 @@ class LeapSdkNativeBridge : LeapNativeBridge {
             }
             withContext(Dispatchers.IO) {
                 runner?.let {
-                    Log.i(TAG, "load: switching model — closing previous $currentPath")
-                    runCatching { closeRunner(it) }
+                    Log.i(TAG, "load: switching model — unloading previous $currentPath")
+                    runCatching { it.unload() }
                 }
                 runner = null
                 currentPath = null
@@ -86,41 +76,46 @@ class LeapSdkNativeBridge : LeapNativeBridge {
     }
 
     override suspend fun generate(prompt: String, maxTokens: Int): String =
-        mutex.withLock { runCollect(UserChatMessage(prompt)) }
+        mutex.withLock {
+            runCollect(prompt, GenerationOptions().apply { this.maxTokens = maxTokens })
+        }
 
     override suspend fun generateStructured(
         prompt: String,
         jsonSchema: String,
         maxTokens: Int,
     ): String = mutex.withLock {
-        // Schema is inlined into the prompt rather than passed via a SDK
-        // Constraints DSL, see class comment above. The Extract model is
-        // fine-tuned to honor this layout.
-        val structuredPrompt = buildString {
-            appendLine("You are a strict JSON extractor.")
-            appendLine("Reply with ONLY a JSON value that conforms to the following JSON schema.")
-            appendLine("Do not include markdown fences, prose, or any text outside the JSON.")
-            appendLine()
-            appendLine("Schema:")
-            appendLine(jsonSchema)
-            appendLine()
-            appendLine("Task:")
-            append(prompt)
+        val options = GenerationOptions().apply {
+            this.maxTokens = maxTokens
+            jsonSchemaConstraint = jsonSchema
+            // Default true; left explicit so the contract is visible: Leap
+            // both grammar-constrains the sampler AND prepends the schema
+            // to the system prompt for semantic guidance.
+            injectSchemaIntoPrompt = true
         }
-        runCollect(UserChatMessage(structuredPrompt))
+        runCollect(prompt, options)
     }
 
-    private suspend fun runCollect(message: ChatMessage): String {
+    private suspend fun runCollect(userText: String, options: GenerationOptions): String {
         val current = runner ?: error("LeapSDK: no model loaded")
+        // Fresh conversation per call — these are three independent extractions,
+        // not a chat dialogue. Carrying history would let one call's prompt
+        // bleed into the next.
+        val conversation = current.createConversation()
         val builder = StringBuilder()
         val t0 = System.currentTimeMillis()
         try {
             withContext(Dispatchers.IO) {
-                current.generateResponse(message).collect { response ->
-                    // The sealed hierarchy varies across snapshots; we read
-                    // text via reflection on the response so a missing
-                    // ReasoningChunk / Complete subtype doesn't break us.
-                    extractTextChunk(response)?.let { builder.append(it) }
+                conversation.generateResponse(userText, options).collect { response ->
+                    when (response) {
+                        is MessageResponse.Chunk -> builder.append(response.text)
+                        is MessageResponse.Complete,
+                        is MessageResponse.ReasoningChunk,
+                        is MessageResponse.FunctionCalls,
+                        is MessageResponse.AudioSample -> {
+                            // Not relevant for our text-only use case.
+                        }
+                    }
                 }
             }
         } catch (t: Throwable) {
@@ -135,48 +130,13 @@ class LeapSdkNativeBridge : LeapNativeBridge {
         return out
     }
 
-    /**
-     * Read the streamed text chunk out of a [MessageResponse] without
-     * pattern-matching the sealed subtypes. The set of subtypes (Chunk,
-     * Complete, ReasoningChunk, FunctionCalls, ...) has shifted across
-     * snapshots; reflection on a public `text` field/property is the
-     * lowest-friction way to remain compatible.
-     */
-    private fun extractTextChunk(response: MessageResponse): String? {
-        // Most snapshots expose `text: String` on the streamed-content type
-        // and either no `text` (or empty) on the terminal Complete type.
-        return runCatching {
-            val cls = response::class.java
-            val getter = cls.methods.firstOrNull { it.name == "getText" && it.parameterCount == 0 }
-                ?: cls.methods.firstOrNull { it.name == "text" && it.parameterCount == 0 }
-            (getter?.invoke(response) as? String)?.takeIf { it.isNotEmpty() }
-        }.getOrNull()
-    }
-
     override suspend fun unload() {
         mutex.withLock {
             withContext(Dispatchers.IO) {
-                runner?.let { runCatching { closeRunner(it) } }
+                runner?.let { runCatching { it.unload() } }
             }
             runner = null
             currentPath = null
         }
-    }
-
-    /**
-     * Snapshot LeapSDK versions vary between `unload()`, `close()`,
-     * `release()`, and `shutdown()` for runner cleanup. Try each in order
-     * via reflection so we never compile against a name that disappears.
-     */
-    private fun closeRunner(r: ModelRunner) {
-        val candidates = listOf("unload", "close", "release", "shutdown")
-        for (name in candidates) {
-            val m = r::class.java.methods.firstOrNull { it.name == name && it.parameterCount == 0 }
-            if (m != null) {
-                m.invoke(r)
-                return
-            }
-        }
-        Log.w(TAG, "closeRunner: no known cleanup method on ${r::class.java.name}")
     }
 }
