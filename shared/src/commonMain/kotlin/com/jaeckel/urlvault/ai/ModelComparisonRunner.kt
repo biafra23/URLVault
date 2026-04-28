@@ -1,5 +1,6 @@
 package com.jaeckel.urlvault.ai
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -9,11 +10,16 @@ import kotlinx.coroutines.withTimeoutOrNull
  * (in `AICoreService`) and the user-visible `ModelComparisonScreen`.
  */
 class ModelComparisonRunner(private val registry: LocalModelRegistry) {
+    enum class RunPhase {
+        PRELOADING,
+        RUNNING,
+    }
 
     data class RunProgress(
         val completedProviders: Int,
         val totalProviders: Int,
         val activeProviderDisplayName: String? = null,
+        val phase: RunPhase? = null,
     )
 
     data class ProviderResult(
@@ -34,6 +40,8 @@ class ModelComparisonRunner(private val registry: LocalModelRegistry) {
      * ready provider. A per-call timeout prevents one stuck provider from
      * blocking the comparison. Progress and individual provider results are
      * reported incrementally so the UI can update while the batch is running.
+     * Each provider is preloaded before timing starts so cold model-load
+     * latency is excluded from the displayed generation timings.
      */
     suspend fun runAll(
         url: String,
@@ -55,10 +63,68 @@ class ModelComparisonRunner(private val registry: LocalModelRegistry) {
                 completedProviders = 0,
                 totalProviders = ready.size,
                 activeProviderDisplayName = ready.first().displayName,
+                phase = RunPhase.PRELOADING,
             ),
         )
 
         ready.forEachIndexed { index, provider ->
+            onProgress(
+                RunProgress(
+                    completedProviders = results.size,
+                    totalProviders = ready.size,
+                    activeProviderDisplayName = provider.displayName,
+                    phase = RunPhase.PRELOADING,
+                ),
+            )
+
+            val preloadError = try {
+                val finished = withTimeoutOrNull(perCallTimeoutMs) {
+                    provider.preload()
+                    true
+                } ?: false
+
+                if (finished) null else "preload: timed out after ${perCallTimeoutMs}ms"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                "preload: ${e.message ?: "Unknown error"}"
+            }
+
+            if (preloadError != null) {
+                val result = ProviderResult(
+                    providerId = provider.id,
+                    displayName = provider.displayName,
+                    runtime = provider.runtime,
+                    tags = emptyList(),
+                    description = "",
+                    title = "",
+                    tagsMs = 0,
+                    descriptionMs = 0,
+                    titleMs = 0,
+                    error = preloadError,
+                )
+                results += result
+                onResult(result)
+                onProgress(
+                    RunProgress(
+                        completedProviders = results.size,
+                        totalProviders = ready.size,
+                        activeProviderDisplayName = ready.getOrNull(index + 1)?.displayName,
+                        phase = ready.getOrNull(index + 1)?.let { RunPhase.PRELOADING },
+                    ),
+                )
+                return@forEachIndexed
+            }
+
+            onProgress(
+                RunProgress(
+                    completedProviders = results.size,
+                    totalProviders = ready.size,
+                    activeProviderDisplayName = provider.displayName,
+                    phase = RunPhase.RUNNING,
+                ),
+            )
+
             val result = try {
                 val tagsStart = currentTimeMillis()
                 val tagsResult = withTimeoutOrNull(perCallTimeoutMs) {
@@ -139,6 +205,7 @@ class ModelComparisonRunner(private val registry: LocalModelRegistry) {
                     completedProviders = results.size,
                     totalProviders = ready.size,
                     activeProviderDisplayName = ready.getOrNull(index + 1)?.displayName,
+                    phase = ready.getOrNull(index + 1)?.let { RunPhase.PRELOADING },
                 ),
             )
         }

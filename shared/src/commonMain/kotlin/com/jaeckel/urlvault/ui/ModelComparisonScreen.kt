@@ -155,8 +155,14 @@ fun ModelComparisonScreen(
                 val progressText = when {
                     currentProgress == null -> "Preparing comparison..."
                     currentProgress.totalProviders == 0 -> "Looking for ready local models..."
-                    currentProgress.activeProviderDisplayName != null ->
+                    currentProgress.phase == ModelComparisonRunner.RunPhase.PRELOADING &&
+                        currentProgress.activeProviderDisplayName != null ->
+                        "Completed ${currentProgress.completedProviders}/${currentProgress.totalProviders} - Loading ${currentProgress.activeProviderDisplayName} into memory..."
+                    currentProgress.phase == ModelComparisonRunner.RunPhase.RUNNING &&
+                        currentProgress.activeProviderDisplayName != null ->
                         "Completed ${currentProgress.completedProviders}/${currentProgress.totalProviders} - Running ${currentProgress.activeProviderDisplayName}"
+                    currentProgress.activeProviderDisplayName != null ->
+                        "Completed ${currentProgress.completedProviders}/${currentProgress.totalProviders} - Working on ${currentProgress.activeProviderDisplayName}"
                     else ->
                         "Completed ${currentProgress.completedProviders}/${currentProgress.totalProviders}"
                 }
