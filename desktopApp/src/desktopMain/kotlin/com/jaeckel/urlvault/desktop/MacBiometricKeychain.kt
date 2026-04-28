@@ -62,57 +62,40 @@ internal class MacBiometricKeychain {
             ObjC.import("Security");
             ObjC.import("Foundation");
 
-            function readStdinUtf8() {
-                var handle = $.NSFileHandle.fileHandleWithStandardInput;
-                var data = handle.readDataToEndOfFile;
-                var s = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
-                return ObjC.unwrap(s);
-            }
-
-            // Returns { bytes: const char*, len: UInt32 } sized for the UTF-8
-            // form of [str]. SecKeychainAddGenericPassword takes raw byte
-            // buffers + lengths, so JS .length (UTF-16 code units) is wrong
-            // for any non-ASCII input.
-            function utf8Buf(str) {
-                var nsStr = $.NSString.alloc.initWithUTF8String(str);
-                var len = nsStr.lengthOfBytesUsingEncoding($.NSUTF8StringEncoding);
-                return { bytes: nsStr.UTF8String, len: len };
-            }
-
             (function () {
                 var env = $.NSProcessInfo.processInfo.environment;
-                var service = ObjC.unwrap(env.objectForKey("URLVAULT_KC_SERVICE"));
-                var account = ObjC.unwrap(env.objectForKey("URLVAULT_KC_ACCOUNT"));
-                var password = readStdinUtf8();
+                var service = env.objectForKey("URLVAULT_KC_SERVICE");
+                var account = env.objectForKey("URLVAULT_KC_ACCOUNT");
 
-                var sv = utf8Buf(service);
-                var ac = utf8Buf(account);
-                var pw = utf8Buf(password);
+                // Read password as raw NSData straight from stdin so we never
+                // have to materialise it into a JS string or a C byte buffer
+                // (JXA's bridge for raw `const char*` arguments to the legacy
+                // SecKeychain* APIs is fragile and returned errSecParam).
+                var stdinHandle = $.NSFileHandle.fileHandleWithStandardInput;
+                var passwordData = stdinHandle.readDataToEndOfFile;
 
-                var itemRef = Ref();
-                var status = $.SecKeychainAddGenericPassword(
-                    $(),                    // null = default keychain
-                    sv.len, sv.bytes,
-                    ac.len, ac.bytes,
-                    pw.len, pw.bytes,
-                    itemRef
-                );
-                // -25299 = errSecDuplicateItem. Mirror the `-U` flag from the
-                // legacy CLI: find the existing item and overwrite its data.
+                var query = $.NSMutableDictionary.alloc.init;
+                query.setObjectForKey($.kSecClassGenericPassword, $.kSecClass);
+                query.setObjectForKey(service, $.kSecAttrService);
+                query.setObjectForKey(account, $.kSecAttrAccount);
+                query.setObjectForKey(passwordData, $.kSecValueData);
+
+                var status = $.SecItemAdd(query, null);
+
+                // -25299 = errSecDuplicateItem. Mirror the prior `-U` flag:
+                // locate the existing item by service+account, then overwrite
+                // its kSecValueData with the new password.
                 if (status === -25299) {
-                    var foundRef = Ref();
-                    var findStatus = $.SecKeychainFindGenericPassword(
-                        $(),
-                        sv.len, sv.bytes,
-                        ac.len, ac.bytes,
-                        null, null,
-                        foundRef
-                    );
-                    if (findStatus !== 0) return "find-failed:" + findStatus;
-                    status = $.SecKeychainItemModifyAttributesAndData(
-                        foundRef[0], null, pw.len, pw.bytes
-                    );
-                    return status === 0 ? "ok" : "modify-failed:" + status;
+                    var findQuery = $.NSMutableDictionary.alloc.init;
+                    findQuery.setObjectForKey($.kSecClassGenericPassword, $.kSecClass);
+                    findQuery.setObjectForKey(service, $.kSecAttrService);
+                    findQuery.setObjectForKey(account, $.kSecAttrAccount);
+
+                    var update = $.NSMutableDictionary.alloc.init;
+                    update.setObjectForKey(passwordData, $.kSecValueData);
+
+                    status = $.SecItemUpdate(findQuery, update);
+                    return status === 0 ? "ok" : "update-failed:" + status;
                 }
                 return status === 0 ? "ok" : "add-failed:" + status;
             })();
