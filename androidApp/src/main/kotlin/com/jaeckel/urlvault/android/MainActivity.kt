@@ -62,12 +62,24 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             URLVaultTheme {
-                var autoTagEnabled by mutableStateOf(bitwardenPrefs.loadAutoTagEnabled())
-                var aiCoreEnabled by mutableStateOf(bitwardenPrefs.loadAiCoreEnabled())
+                // Without `remember`, mutableStateOf is rebuilt every
+                // recomposition and re-hits EncryptedSharedPreferences
+                // (Keystore-backed AES). When a download flow is ticking
+                // that's tens of decrypts per second — a real ANR source.
+                var autoTagEnabled by remember { mutableStateOf(bitwardenPrefs.loadAutoTagEnabled()) }
+                var aiCoreEnabled by remember { mutableStateOf(bitwardenPrefs.loadAiCoreEnabled()) }
                 val aiCoreStatus by aiCoreService.status.collectAsState()
                 val downloadStates by modelDownloadManager.states.collectAsState()
                 var customEntries by remember { mutableStateOf(localModelPrefs.loadCustomEntries()) }
                 var activeIds by remember { mutableStateOf(localModelPrefs.loadActiveIds()) }
+                // Settings reads two heavy values from EncryptedSharedPreferences:
+                // the Bitwarden credentials (decrypts via Keystore) and the
+                // field-history blob. Cache them in remembered state and only
+                // refresh when the user actually saves new credentials, so
+                // recomposition (e.g. for download-progress ticks) doesn't
+                // cost a Keystore round-trip every frame.
+                var savedCredentials by remember { mutableStateOf(bitwardenPrefs.loadCredentials()) }
+                var fieldHistory by remember { mutableStateOf(bitwardenPrefs.loadFieldHistory()) }
 
                 // Kick off AICore initialization once
                 LaunchedEffect(Unit) {
@@ -162,7 +174,7 @@ class MainActivity : ComponentActivity() {
                     is Screen.Settings -> {
                         val catalog = ModelCatalog.builtIn + customEntries
                         SettingsScreen(
-                            currentCredentials = bitwardenPrefs.loadCredentials(),
+                            currentCredentials = savedCredentials,
                             syncService = syncService,
                             autoTagEnabled = autoTagEnabled,
                             onAutoTagEnabledChanged = { enabled ->
@@ -228,10 +240,12 @@ class MainActivity : ComponentActivity() {
                             onSaveCredentials = { credentials ->
                                 bitwardenPrefs.saveCredentials(credentials)
                                 bitwardenPrefs.addToFieldHistory(credentials)
+                                savedCredentials = credentials
+                                fieldHistory = bitwardenPrefs.loadFieldHistory()
                                 bookmarkViewModel.configureBitwarden(credentials)
                             },
                             onNavigateBack = { currentScreen = Screen.List },
-                            fieldHistory = bitwardenPrefs.loadFieldHistory()
+                            fieldHistory = fieldHistory
                         )
                     }
 

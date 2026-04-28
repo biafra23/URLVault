@@ -135,9 +135,15 @@ val appModule = module {
             appScope = get(),
             authTokenProvider = { get<LocalModelPreferences>().loadHfToken() },
         )
-        // Combine built-in + user-added entries and rehydrate from disk.
-        val customEntries = get<LocalModelPreferences>().loadCustomEntries()
-        mgr.rehydrateFromDisk(ModelCatalog.builtIn + customEntries)
+        // Rehydrate off the main thread. This singleton is created during the
+        // first ViewModel inject in MainActivity.onCreate, so doing the
+        // EncryptedSharedPreferences read + filesystem stat for every catalog
+        // entry inline would hold up the first frame.
+        val localPrefs = get<LocalModelPreferences>()
+        get<CoroutineScope>().launch {
+            val customEntries = localPrefs.loadCustomEntries()
+            mgr.rehydrateFromDisk(ModelCatalog.builtIn + customEntries)
+        }
         // Also wire the comparison runner into AICoreService so the DEBUG
         // benchmark covers all installed models, not just Gemini Nano.
         get<AICoreService>().comparisonRunner = get()

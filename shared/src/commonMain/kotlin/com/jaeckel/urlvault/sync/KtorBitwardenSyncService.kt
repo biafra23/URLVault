@@ -22,8 +22,10 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 
 /**
@@ -286,11 +288,17 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
             "Only PBKDF2 (kdf=0) is supported, got kdf=${preloginResp.kdf}"
         }
 
-        // Step 2: derive master key and hash
-        val masterKey = BitwardenEncryption.deriveMasterKey(
-            password, email, preloginResp.kdfIterations
-        )
-        val hashedPassword = hashMasterPassword(masterKey, password)
+        // Step 2: derive master key and hash. PBKDF2-SHA256 with the
+        // server-supplied iteration count (typically 600k) is multi-second of
+        // pure CPU — keep it off whatever dispatcher the caller used. The Main
+        // dispatcher would ANR; even the IO pool would starve a thread. Run
+        // on Default (CPU pool) until both crypto steps have produced bytes.
+        val (masterKey, hashedPassword) = withContext(Dispatchers.Default) {
+            val mk = BitwardenEncryption.deriveMasterKey(
+                password, email, preloginResp.kdfIterations
+            )
+            mk to hashMasterPassword(mk, password)
+        }
 
         // Step 3: token request with password grant
         val httpResponse: HttpResponse = httpClient.submitForm(
@@ -326,13 +334,19 @@ class KtorBitwardenSyncService(private val httpClient: HttpClient) : BitwardenSy
                     require(kdfType == 0) { "Only PBKDF2 (Kdf=0) is supported, got Kdf=$kdfType" }
 
                     log("Deriving vault encryption keys (PBKDF2, $kdfIterations iterations)")
-                    val masterKey = BitwardenEncryption.deriveMasterKey(
-                        password, email, kdfIterations
-                    )
-                    val (stretchedEncKey, stretchedMacKey) = BitwardenEncryption.stretchMasterKey(masterKey)
-                    val (vEncKey, vMacKey) = BitwardenEncryption.decryptEncryptionKey(
-                        response.Key, stretchedEncKey, stretchedMacKey
-                    )
+                    // Same reason as the auth-side derivation: keep this off
+                    // Main / IO. Stretch + AES-CBC are cheap, but bundling
+                    // them into the same Default context avoids dispatcher
+                    // ping-pong.
+                    val (vEncKey, vMacKey) = withContext(Dispatchers.Default) {
+                        val mk = BitwardenEncryption.deriveMasterKey(
+                            password, email, kdfIterations
+                        )
+                        val (sEnc, sMac) = BitwardenEncryption.stretchMasterKey(mk)
+                        BitwardenEncryption.decryptEncryptionKey(
+                            response.Key, sEnc, sMac
+                        )
+                    }
                     vaultEncKey = vEncKey
                     vaultMacKey = vMacKey
                     log("Vault encryption keys derived successfully")
