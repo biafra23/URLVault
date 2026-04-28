@@ -83,11 +83,16 @@ class LocalModelRouter(
                 false
             }
         }
-        Log.i(
-            TAG,
-            "pick: activeIds=$active registered=${all.size} -> " +
-                readiness.joinToString { (p, r) -> "${p.id}(ready=$r)" },
-        )
+        // Polled from the UI on every download tick — keep at DEBUG so release
+        // builds don't spam logcat. Gated by isLoggable so we don't pay the
+        // joinToString cost when the level is filtered out.
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+            Log.d(
+                TAG,
+                "pick: activeIds=$active registered=${all.size} -> " +
+                    readiness.joinToString { (p, r) -> "${p.id}(ready=$r)" },
+            )
+        }
 
         val readinessSummary = readiness.map { (p, r) -> p.id to r }
         val preferred = readiness.firstOrNull { (p, ready) -> ready && p.id in active }?.first
