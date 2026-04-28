@@ -259,11 +259,11 @@ class AICoreService(httpClient: HttpClient) {
                 }
             }
             Log.v(TAG, "AI Prompt prepared for tag generation (titleIncluded=${title.isNotBlank()}, descriptionIncluded=${description.isNotBlank()}, pageSummaryIncluded=${pageSummary.isNotBlank()}, length=${prompt.length})")
-            
-            if (com.jaeckel.urlvault.android.BuildConfig.DEBUG) {
-                runBenchmarking(prompt, sourceUrl = url, sourceTitle = title, sourceUserDescription = description)
-            }
 
+            // Inline benchmark fan-out removed: it iterated 4 Gemini Nano
+            // variants and every registered local model BEFORE returning a
+            // result, turning a single tap into 30+ seconds of waiting. For
+            // explicit cross-model comparison use ModelComparisonScreen.
             val text = runInference(prompt)
             if (com.jaeckel.urlvault.android.BuildConfig.DEBUG) {
                 Log.d(TAG, "AI Response: $text")
@@ -310,10 +310,9 @@ class AICoreService(httpClient: HttpClient) {
                 }
             }
             
-            if (com.jaeckel.urlvault.android.BuildConfig.DEBUG) {
-                runBenchmarking(prompt, sourceUrl = url, sourceTitle = title, sourceUserDescription = "")
-            }
-
+            // See generateTags() — inline runBenchmarking removed for the
+            // same reason; explicit comparison lives in
+            // ModelComparisonScreen.
             validateDescription(runInference(prompt).trim())
         }
     }
