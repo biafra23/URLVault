@@ -42,6 +42,7 @@ class ModelDownloadManager(
     private val sharedHttp: HttpClient,
     private val registry: LocalModelRegistry,
     private val bridge: LlamaCppNativeBridge,
+    private val leapBridge: LeapNativeBridge,
     private val appScope: CoroutineScope,
     private val authTokenProvider: () -> String? = { null },
 ) {
@@ -65,7 +66,7 @@ class ModelDownloadManager(
      */
     fun rehydrateFromDisk(catalog: List<ModelCatalogEntry>) {
         catalog.forEach { entry ->
-            if (entry.runtime != ModelRuntime.LLAMA_CPP) return@forEach
+            if (entry.runtime != ModelRuntime.LLAMA_CPP && entry.runtime != ModelRuntime.LEAP) return@forEach
             val file = fileFor(entry)
             if (file.exists() && file.length() > 0) {
                 _states.update { it + (entry.id to ModelDownloadState.Ready(file.absolutePath, file.length())) }
@@ -79,7 +80,7 @@ class ModelDownloadManager(
             Log.d(TAG, "Download already in progress for ${entry.id}")
             return
         }
-        if (entry.runtime != ModelRuntime.LLAMA_CPP) {
+        if (entry.runtime != ModelRuntime.LLAMA_CPP && entry.runtime != ModelRuntime.LEAP) {
             _states.update {
                 it + (entry.id to ModelDownloadState.Failed("Runtime ${entry.runtime} not yet supported"))
             }
@@ -229,21 +230,30 @@ class ModelDownloadManager(
     }
 
     private fun registerProvider(entry: ModelCatalogEntry, file: File) {
-        if (entry.runtime != ModelRuntime.LLAMA_CPP) {
-            Log.d(TAG, "registerProvider: skip ${entry.id} (runtime=${entry.runtime})")
-            return
+        val provider = when (entry.runtime) {
+            ModelRuntime.LLAMA_CPP -> LlamaCppModelProvider(
+                id = entry.id,
+                displayName = entry.displayName,
+                modelFile = file.absolutePath,
+                bridge = bridge,
+                httpClient = sharedHttp,
+            )
+            ModelRuntime.LEAP -> LeapModelProvider(
+                id = entry.id,
+                displayName = entry.displayName,
+                modelFile = file.absolutePath,
+                bridge = leapBridge,
+                httpClient = sharedHttp,
+            )
+            else -> {
+                Log.d(TAG, "registerProvider: skip ${entry.id} (runtime=${entry.runtime})")
+                return
+            }
         }
-        val provider = LlamaCppModelProvider(
-            id = entry.id,
-            displayName = entry.displayName,
-            modelFile = file.absolutePath,
-            bridge = bridge,
-            httpClient = sharedHttp,
-        )
         registry.register(provider)
         Log.i(
             TAG,
-            "registerProvider: ${entry.id} -> ${file.absolutePath} (${file.length()} bytes)",
+            "registerProvider: ${entry.id} -> ${file.absolutePath} (${file.length()} bytes, runtime=${entry.runtime})",
         )
     }
 }

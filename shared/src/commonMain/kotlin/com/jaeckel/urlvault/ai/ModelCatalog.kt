@@ -87,6 +87,19 @@ object ModelCatalog {
             notes = "~800 MB. True 1B-param Gemma — same size class as LFM2 1.2B; one generation older than Gemma 4.",
         ),
         ModelCatalogEntry(
+            id = "leap:lfm2-1.2b-extract",
+            displayName = "Liquid AI LFM2 1.2B Extract (LEAP, JSON)",
+            runtime = ModelRuntime.LEAP,
+            hfRepo = "LiquidAI/LeapBundles",
+            hfFile = "LFM2-1.2B-Extract-8da4w_output_8da8w-seq_4096.bundle",
+            approxBytes = 1100L * 1024 * 1024,
+            license = "LFM Open License",
+            builtIn = true,
+            notes = "Fine-tuned for structured JSON extraction. Runs through LeapSDK with " +
+                "grammar-constrained JSON output, so tags / description / title are produced " +
+                "as schema-validated JSON rather than free-form text.",
+        ),
+        ModelCatalogEntry(
             id = "mediapipe:gemma-3-1b-it",
             displayName = "Google Gemma 3 1B IT (Coming soon)",
             runtime = ModelRuntime.MEDIAPIPE,

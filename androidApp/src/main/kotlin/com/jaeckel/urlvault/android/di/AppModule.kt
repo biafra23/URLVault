@@ -6,6 +6,8 @@ import com.jaeckel.urlvault.ai.ModelCatalog
 import com.jaeckel.urlvault.ai.ModelComparisonRunner
 import com.jaeckel.urlvault.android.ai.AICoreService
 import com.jaeckel.urlvault.android.ai.AICoreServiceAdapter
+import com.jaeckel.urlvault.android.ai.LeapNativeBridge
+import com.jaeckel.urlvault.android.ai.LeapSdkNativeBridge
 import com.jaeckel.urlvault.android.ai.LlamaCppNativeBridge
 import com.jaeckel.urlvault.android.ai.LlamatikNativeBridge
 import com.jaeckel.urlvault.android.ai.LocalModelPreferences
@@ -113,6 +115,11 @@ val appModule = module {
     // arm64-v8a in androidApp/build.gradle.kts to keep APK size in check.
     single<LlamaCppNativeBridge> { LlamatikNativeBridge() }
 
+    // LeapSDK runtime — runs LFM2-family `.bundle` models with structured JSON
+    // output (see `LeapModelProvider`). Falls back to NoOp via the no-op
+    // pattern if the SDK class fails to load on this device.
+    single<LeapNativeBridge> { LeapSdkNativeBridge() }
+
     // Cross-provider comparison helper (used by both DEBUG logcat benchmark
     // and the user-visible ModelComparisonScreen)
     single { ModelComparisonRunner(get()) }
@@ -124,6 +131,7 @@ val appModule = module {
             sharedHttp = get(),
             registry = get(),
             bridge = get(),
+            leapBridge = get(),
             appScope = get(),
             authTokenProvider = { get<LocalModelPreferences>().loadHfToken() },
         )

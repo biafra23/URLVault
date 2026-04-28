@@ -23,4 +23,5 @@ enum class ModelRuntime {
     ML_KIT,
     LLAMA_CPP,
     MEDIAPIPE,
+    LEAP,
 }
