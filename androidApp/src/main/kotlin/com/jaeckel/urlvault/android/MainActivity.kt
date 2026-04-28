@@ -6,6 +6,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -136,7 +139,12 @@ class MainActivity : ComponentActivity() {
                     value = localModelRouter.hasReadyProvider()
                 }
 
-                androidx.compose.foundation.layout.Column {
+                Column(
+                    // enableEdgeToEdge() lets content draw under the status
+                    // bar; without statusBarsPadding the banner would land
+                    // behind the system clock / battery icons.
+                    modifier = Modifier.statusBarsPadding(),
+                ) {
                     // Persistent status banner — surfaces the active model
                     // warming up or any in-flight download regardless of which
                     // screen the user is on. Auto-hides when nothing is in
