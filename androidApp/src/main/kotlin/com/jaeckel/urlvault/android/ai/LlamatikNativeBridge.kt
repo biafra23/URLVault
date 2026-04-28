@@ -159,7 +159,11 @@ class LlamatikNativeBridge : LlamaCppNativeBridge {
 
     private companion object {
         const val DEFAULT_MAX_TOKENS = 128
-        // Conservative throughput estimate for LFM2 1.2B on arm64-v8a phones.
+        // Measured on a mid-range arm64-v8a device (Snapdragon 8 Gen 2 class)
+        // running LFM2 1.2B Q4_K_M in llama.cpp. Slower devices may run at
+        // 150–250 ms/token; adjust upward if timeouts are seen in practice.
+        // The clamp to [MIN, MAX] means this only matters for very large token
+        // budgets where proportional scaling would otherwise blow past 45 s.
         const val MS_PER_TOKEN_ESTIMATE = 400L
         const val MIN_TIMEOUT_MS = 12_000L
         const val MAX_TIMEOUT_MS = 45_000L

@@ -115,6 +115,16 @@ class LiteRtLmSdkBridge(private val context: Context) : LiteRtLmNativeBridge {
      * typically loaded from there for QCS / Pixel chips), then GPU, then CPU.
      * On unsupported devices NPU init throws and we fall through.
      */
+    /**
+     * Returns backends to try in order: NPU (fastest, dedicated silicon) →
+     * GPU (good throughput, universally available on Android) → CPU (fallback,
+     * always available). NPU is gated on [nativeLibDir] being non-blank because
+     * LiteRT-LM requires the path to the delegated `.so` shipped in the AAR.
+     *
+     * The caller tries each backend in order and uses the first that succeeds
+     * in loading the model. To prefer a different order or restrict to CPU-only,
+     * change the list here; no other code needs updating.
+     */
     private fun backendsInPriorityOrder(nativeLibDir: String): List<Pair<String, Backend>> {
         val list = mutableListOf<Pair<String, Backend>>()
         if (nativeLibDir.isNotBlank()) {

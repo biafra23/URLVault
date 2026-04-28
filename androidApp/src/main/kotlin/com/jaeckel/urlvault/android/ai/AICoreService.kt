@@ -26,6 +26,14 @@ private const val TAG = "AICoreService"
 /** Maximum length of page content included in prompts. */
 private const val MAX_PAGE_CONTENT_LENGTH = 800
 
+/**
+ * MLKit GenAI error code surfaced when the Prompt API feature (ID 647) is
+ * registered in AICore but not available or supported on this specific device.
+ * Treated as [AICoreStatus.Unavailable] rather than [AICoreStatus.Failed].
+ */
+private const val AICORE_FEATURE_NOT_FOUND_CODE = "606"
+private const val AICORE_FEATURE_NOT_FOUND_MSG = "FEATURE_NOT_FOUND"
+
 /** Maximum allowed length for a generated description. */
 private const val MAX_DESCRIPTION_LENGTH = 300
 
@@ -175,7 +183,8 @@ class AICoreService(httpClient: HttpClient) {
 
                     // Error 606 (FEATURE_NOT_FOUND) often means AICore is present but this specific 
                     // feature (Prompt API / Feature 647) is not available or supported on this device.
-                    if (e.message?.contains("606") == true || e.message?.contains("FEATURE_NOT_FOUND") == true) {
+                    if (e.message?.contains(AICORE_FEATURE_NOT_FOUND_CODE) == true ||
+                        e.message?.contains(AICORE_FEATURE_NOT_FOUND_MSG) == true) {
                         _status.value = AICoreStatus.Unavailable
                     } else {
                         _status.value = AICoreStatus.Failed(e.message ?: "Initialization failed")
