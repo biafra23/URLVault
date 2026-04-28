@@ -58,27 +58,34 @@ internal class MacBiometricKeychain {
      */
     fun savePassword(service: String, account: String, password: String): Boolean {
         if (!isSupported()) return false
+        // JXA exposes Security's `extern const CFStringRef kSecClass` as a
+        // Ref<CFStringRef> object — passing it bare to `setObject:forKey:`
+        // stuffs the wrapper into the dict instead of the underlying
+        // CFString, every key collides on the same Ref pointer, and
+        // SecItemAdd returns errSecParam (-50). Use plain NSString keys
+        // matching the documented (and stable) CFString values; CFDictionary
+        // does CFEqual-based comparison so the framework recognises them.
         val script = """
             ObjC.import("Security");
             ObjC.import("Foundation");
+
+            function s(str) { return $.NSString.stringWithUTF8String(str); }
 
             (function () {
                 var env = $.NSProcessInfo.processInfo.environment;
                 var service = env.objectForKey("URLVAULT_KC_SERVICE");
                 var account = env.objectForKey("URLVAULT_KC_ACCOUNT");
 
-                // Read password as raw NSData straight from stdin so we never
-                // have to materialise it into a JS string or a C byte buffer
-                // (JXA's bridge for raw `const char*` arguments to the legacy
-                // SecKeychain* APIs is fragile and returned errSecParam).
+                // Read password as raw NSData from stdin so it never lands in
+                // argv or env.
                 var stdinHandle = $.NSFileHandle.fileHandleWithStandardInput;
                 var passwordData = stdinHandle.readDataToEndOfFile;
 
                 var query = $.NSMutableDictionary.alloc.init;
-                query.setObjectForKey($.kSecClassGenericPassword, $.kSecClass);
-                query.setObjectForKey(service, $.kSecAttrService);
-                query.setObjectForKey(account, $.kSecAttrAccount);
-                query.setObjectForKey(passwordData, $.kSecValueData);
+                query.setObjectForKey(s("genp"), s("class"));   // kSecClassGenericPassword, kSecClass
+                query.setObjectForKey(service, s("svce"));      // kSecAttrService
+                query.setObjectForKey(account, s("acct"));      // kSecAttrAccount
+                query.setObjectForKey(passwordData, s("v_Data"));// kSecValueData
 
                 var status = $.SecItemAdd(query, null);
 
@@ -87,12 +94,12 @@ internal class MacBiometricKeychain {
                 // its kSecValueData with the new password.
                 if (status === -25299) {
                     var findQuery = $.NSMutableDictionary.alloc.init;
-                    findQuery.setObjectForKey($.kSecClassGenericPassword, $.kSecClass);
-                    findQuery.setObjectForKey(service, $.kSecAttrService);
-                    findQuery.setObjectForKey(account, $.kSecAttrAccount);
+                    findQuery.setObjectForKey(s("genp"), s("class"));
+                    findQuery.setObjectForKey(service, s("svce"));
+                    findQuery.setObjectForKey(account, s("acct"));
 
                     var update = $.NSMutableDictionary.alloc.init;
-                    update.setObjectForKey(passwordData, $.kSecValueData);
+                    update.setObjectForKey(passwordData, s("v_Data"));
 
                     status = $.SecItemUpdate(findQuery, update);
                     return status === 0 ? "ok" : "update-failed:" + status;
