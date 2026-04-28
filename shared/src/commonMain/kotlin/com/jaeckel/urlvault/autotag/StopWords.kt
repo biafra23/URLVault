@@ -28,7 +28,7 @@ internal val ENGLISH_STOP_WORDS: Set<String> = setOf(
 // snowball/NLTK, plus typical web boilerplate. Note: a handful of these words also
 // occur as content words in English (e.g. "die", "war", "man", "kind"). On mixed
 // English/German pages they will be filtered from English text too — accepted
-// tradeoff, see comment in AutoTagService.
+// tradeoff for keeping the tagger simple (no language detection).
 internal val GERMAN_STOP_WORDS: Set<String> = setOf(
     // Articles
     "der", "die", "das", "den", "dem", "des",

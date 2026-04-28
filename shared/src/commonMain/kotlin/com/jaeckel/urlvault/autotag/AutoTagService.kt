@@ -79,10 +79,10 @@ class AutoTagService(private val httpClient: HttpClient) {
 
             // Extract <meta name="keywords" content="...">
             val keywordsTags = extractMetaContent(trimmedHtml, "keywords")?.let { keywords ->
-                keywords.split(Regex("[,;]+")).map {
+                keywords.split(KEYWORD_SPLIT_REGEX).map {
                     it.trim()
                         .lowercase()
-                        .replace(Regex("[^a-z0-9äöüß\\s-]"), "")
+                        .replace(KEYWORD_CLEANUP_REGEX, "")
                         .trim()
                 }
                 .filter { it.isNotBlank() && it.length in 2..30 }
@@ -174,11 +174,43 @@ class AutoTagService(private val httpClient: HttpClient) {
         private val HEADING_REGEX =
             Regex("<h([1-3])[^>]*>([\\s\\S]*?)</h\\1>", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("<[^>]+>")
-        private val HTML_ENTITY_REGEX = Regex("&[a-z]+;")
         private val WORD_SPLIT_REGEX = Regex("[^a-z0-9äöüß]+")
+        private val KEYWORD_SPLIT_REGEX = Regex("[,;]+")
+        private val KEYWORD_CLEANUP_REGEX = Regex("[^a-z0-9äöüß\\s-]")
+        private val HTML_NUMERIC_ENTITY_REGEX = Regex("&#(\\d+|[xX][0-9a-fA-F]+);")
+        private val HTML_NAMED_ENTITY_REGEX = Regex("&[a-zA-Z]+;")
+
+        // Decode common named entities (German umlauts and a few standard ones)
+        // before falling back to stripping. Without this, &uuml;/&szlig;/etc. are
+        // wiped to whitespace and "M&uuml;nchen" becomes "M nchen".
+        private val HTML_NAMED_ENTITIES = mapOf(
+            "&auml;" to "ä", "&Auml;" to "Ä",
+            "&ouml;" to "ö", "&Ouml;" to "Ö",
+            "&uuml;" to "ü", "&Uuml;" to "Ü",
+            "&szlig;" to "ß",
+            "&amp;" to "&", "&lt;" to "<", "&gt;" to ">",
+            "&quot;" to "\"", "&apos;" to "'", "&nbsp;" to " "
+        )
 
         private fun stripHtmlTags(text: String): String =
-            text.replace(HTML_TAG_REGEX, " ").replace(HTML_ENTITY_REGEX, " ")
+            decodeHtmlEntities(text.replace(HTML_TAG_REGEX, " "))
+
+        private fun decodeHtmlEntities(text: String): String {
+            var result = text
+            HTML_NAMED_ENTITIES.forEach { (entity, replacement) ->
+                result = result.replace(entity, replacement)
+            }
+            result = HTML_NUMERIC_ENTITY_REGEX.replace(result) { match ->
+                val body = match.groupValues[1]
+                val cp = if (body.startsWith("x") || body.startsWith("X")) {
+                    body.substring(1).toIntOrNull(16)
+                } else {
+                    body.toIntOrNull()
+                }
+                if (cp != null && cp in 0..0xFFFF) cp.toChar().toString() else ""
+            }
+            return HTML_NAMED_ENTITY_REGEX.replace(result, " ")
+        }
     }
 }
 
