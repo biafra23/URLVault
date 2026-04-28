@@ -23,6 +23,7 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "ModelDownloadManager"
 private const val BUFFER_BYTES = 64 * 1024
@@ -51,7 +52,7 @@ class ModelDownloadManager(
     private val _states = MutableStateFlow<Map<String, ModelDownloadState>>(emptyMap())
     val states: StateFlow<Map<String, ModelDownloadState>> = _states.asStateFlow()
 
-    private val activeJobs = mutableMapOf<String, Job>()
+    private val activeJobs = ConcurrentHashMap<String, Job>()
 
     private fun modelsDir(): File =
         (context.getExternalFilesDir("models") ?: File(context.filesDir, "models")).apply {
@@ -225,6 +226,10 @@ class ModelDownloadManager(
                             }
                         }
                     }
+                    // If the coroutine was cancelled mid-stream the loop exits
+                    // cleanly without throwing. Throw here so the caller doesn't
+                    // write the .complete marker for a partial file.
+                    if (!isActive) error("Download cancelled")
                 } finally {
                     raf.close()
                 }

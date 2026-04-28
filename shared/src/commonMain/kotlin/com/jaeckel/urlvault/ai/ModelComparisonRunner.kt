@@ -42,6 +42,7 @@ class ModelComparisonRunner(private val registry: LocalModelRegistry) {
                     provider.generateTags(url, title, userDescription)
                 }
                 val tagsMs = currentTimeMillis() - tagsStart
+                val tagsTimedOut = tagsResult == null
                 val tags = tagsResult?.getOrNull() ?: emptyList()
 
                 val descStart = currentTimeMillis()
@@ -49,6 +50,7 @@ class ModelComparisonRunner(private val registry: LocalModelRegistry) {
                     provider.generateDescription(url, title)
                 }
                 val descMs = currentTimeMillis() - descStart
+                val descTimedOut = descResult == null
                 val desc = descResult?.getOrNull() ?: ""
 
                 val titleStart = currentTimeMillis()
@@ -56,6 +58,7 @@ class ModelComparisonRunner(private val registry: LocalModelRegistry) {
                     provider.generateTitle(url)
                 }
                 val titleMs = currentTimeMillis() - titleStart
+                val titleTimedOut = titleResult == null
                 val titleOut = titleResult?.getOrNull() ?: ""
 
                 ProviderResult(
@@ -69,12 +72,17 @@ class ModelComparisonRunner(private val registry: LocalModelRegistry) {
                     descriptionMs = descMs,
                     titleMs = titleMs,
                     error = listOfNotNull(
-                        tagsResult?.exceptionOrNull()?.message?.let { "tags: $it" },
-                        descResult?.exceptionOrNull()?.message?.let { "desc: $it" },
-                        titleResult?.exceptionOrNull()?.message?.let { "title: $it" },
+                        if (tagsTimedOut) "tags: timed out after ${perCallTimeoutMs}ms"
+                        else tagsResult?.exceptionOrNull()?.message?.let { "tags: $it" },
+                        if (descTimedOut) "desc: timed out after ${perCallTimeoutMs}ms"
+                        else descResult?.exceptionOrNull()?.message?.let { "desc: $it" },
+                        if (titleTimedOut) "title: timed out after ${perCallTimeoutMs}ms"
+                        else titleResult?.exceptionOrNull()?.message?.let { "title: $it" },
                     ).joinToString("; ").ifBlank { null },
                 )
             } catch (e: TimeoutCancellationException) {
+                // Catches only outer-scope cancellation, not per-call timeouts
+                // (those are already handled by withTimeoutOrNull null detection above).
                 ProviderResult(
                     providerId = provider.id,
                     displayName = provider.displayName,

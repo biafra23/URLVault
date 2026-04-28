@@ -152,13 +152,30 @@ internal class MacBiometricKeychain {
             if (exitCode == 0) {
                 stdout
             } else {
-                Logger.v(TAG, "command [${command.joinToString(" ")}] failed code=$exitCode: $stderr")
+                Logger.v(TAG, "command [${redactArgs(command)}] failed code=$exitCode: $stderr")
                 null
             }
         } catch (e: Exception) {
-            Logger.e(TAG, "runCommand [${command.joinToString(" ")}] threw: ${e.message}", e)
+            Logger.e(TAG, "runCommand [${redactArgs(command)}] threw: ${e.message}", e)
             null
         }
+    }
+
+    /** Redacts values following `-w` so passwords never appear in logs. */
+    private fun redactArgs(args: Array<out String>): String {
+        val sb = StringBuilder()
+        var i = 0
+        while (i < args.size) {
+            if (i > 0) sb.append(' ')
+            if (args[i] == "-w" && i + 1 < args.size) {
+                sb.append("-w <redacted>")
+                i += 2
+            } else {
+                sb.append(args[i])
+                i++
+            }
+        }
+        return sb.toString()
     }
 
     private companion object {

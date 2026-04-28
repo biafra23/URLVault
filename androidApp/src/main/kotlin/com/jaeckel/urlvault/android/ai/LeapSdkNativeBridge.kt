@@ -13,9 +13,8 @@ import kotlinx.coroutines.withContext
 private const val TAG = "LeapSdkNativeBridge"
 
 /**
- * `LeapNativeBridge` backed by Liquid AI's LeapSDK
- * (`ai.liquid.leap:leap-sdk:0.10.0-5-SNAPSHOT`). LeapSDK ships native libraries
- * in its AAR; we never write JNI in this repo.
+ * `LeapNativeBridge` backed by Liquid AI's LeapSDK. LeapSDK ships native
+ * libraries in its AAR; we never write JNI in this repo.
  *
  * Each call creates a fresh `Conversation` from the loaded `ModelRunner` —
  * the three bookmark AI calls (tags / description / title) are logically
