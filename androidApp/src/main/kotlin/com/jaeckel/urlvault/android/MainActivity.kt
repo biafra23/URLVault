@@ -29,6 +29,7 @@ import com.jaeckel.urlvault.sync.BitwardenSyncService
 import com.jaeckel.urlvault.ui.AddEditBookmarkScreen
 import com.jaeckel.urlvault.ui.BookmarkListScreen
 import com.jaeckel.urlvault.ui.ModelComparisonScreen
+import com.jaeckel.urlvault.ui.ModelStatusBanner
 import com.jaeckel.urlvault.ui.SettingsScreen
 import com.jaeckel.urlvault.ui.theme.URLVaultTheme
 import com.jaeckel.urlvault.viewmodel.BookmarkViewModel
@@ -135,6 +136,18 @@ class MainActivity : ComponentActivity() {
                     value = localModelRouter.hasReadyProvider()
                 }
 
+                androidx.compose.foundation.layout.Column {
+                    // Persistent status banner — surfaces the active model
+                    // warming up or any in-flight download regardless of which
+                    // screen the user is on. Auto-hides when nothing is in
+                    // flight so the layout collapses back cleanly.
+                    ModelStatusBanner(
+                        warmingIds = warmingIds,
+                        downloadStates = downloadStates,
+                        activeIds = activeIds,
+                        catalog = ModelCatalog.builtIn + customEntries,
+                        aiCoreId = AiProviderIds.AICORE,
+                    )
                 when (val screen = currentScreen) {
                     is Screen.List -> BookmarkListScreen(
                         viewModel = bookmarkViewModel,
@@ -268,6 +281,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+                }   // close Column wrapping the banner + screen content
             }
         }
     }
