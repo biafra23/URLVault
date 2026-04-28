@@ -18,18 +18,52 @@ import java.io.File
 private const val TAG = "LiteRtLmSdkBridge"
 
 /**
+ * Strategy for ordering [Backend] candidates that [LiteRtLmSdkBridge.load]
+ * tries during model initialisation. The strategy is invoked once per
+ * `load()` with the JNI library directory; it returns labelled backends
+ * in the order to attempt them. Tests inject a deterministic strategy;
+ * production uses [DefaultBackendStrategy] (NPU → GPU → CPU).
+ */
+fun interface LiteRtLmBackendStrategy {
+    fun candidates(nativeLibDir: String): List<Pair<String, Backend>>
+}
+
+/**
+ * NPU first when the device's `nativeLibraryDir` is non-blank (vendor libs
+ * are loaded from there for QCS / Pixel chips), then GPU, then CPU. On
+ * unsupported devices the NPU init throws and `load()` falls through to
+ * the next backend.
+ */
+object DefaultBackendStrategy : LiteRtLmBackendStrategy {
+    override fun candidates(nativeLibDir: String): List<Pair<String, Backend>> {
+        val list = mutableListOf<Pair<String, Backend>>()
+        if (nativeLibDir.isNotBlank()) {
+            list.add("NPU" to Backend.NPU(nativeLibDir))
+        }
+        list.add("GPU" to Backend.GPU())
+        // null = default thread count picked by the runtime.
+        list.add("CPU" to Backend.CPU(null))
+        return list
+    }
+}
+
+/**
  * `LiteRtLmNativeBridge` backed by `com.google.ai.edge.litertlm:litertlm-android`.
  *
- * Backend selection on `load()` walks NPU → GPU → CPU, building a fresh
- * [Engine] for each backend until one initialises successfully. The chosen
+ * Backend selection on `load()` is delegated to [LiteRtLmBackendStrategy].
+ * The default ([DefaultBackendStrategy]) walks NPU → GPU → CPU, building a
+ * fresh [Engine] per candidate until one initialises successfully. The chosen
  * backend is logged so the user-visible comparison screen can show why one
- * device is faster than another.
+ * device is faster than another. Tests substitute their own strategy.
  *
  * No JSON-schema-constrained sampler exists in this SDK — [generateStructured]
  * appends the schema to the prompt as a hint and the parser in
  * `LiteRtLmModelProvider` does the defensive cleanup.
  */
-class LiteRtLmSdkBridge(private val context: Context) : LiteRtLmNativeBridge {
+class LiteRtLmSdkBridge(
+    private val context: Context,
+    private val backendStrategy: LiteRtLmBackendStrategy = DefaultBackendStrategy,
+) : LiteRtLmNativeBridge {
 
     private val mutex = Mutex()
     private var engine: Engine? = null
@@ -66,7 +100,7 @@ class LiteRtLmSdkBridge(private val context: Context) : LiteRtLmNativeBridge {
 
                 val cacheDir = File(context.cacheDir, "litertlm").also { it.mkdirs() }
                 val nativeLibDir = context.applicationInfo.nativeLibraryDir.orEmpty()
-                val backendsToTry = backendsInPriorityOrder(nativeLibDir)
+                val backendsToTry = backendStrategy.candidates(nativeLibDir)
 
                 var lastError: Throwable? = null
                 for ((label, backend) in backendsToTry) {
@@ -102,38 +136,13 @@ class LiteRtLmSdkBridge(private val context: Context) : LiteRtLmNativeBridge {
                         runCatching { candidate.close() }
                     }
                 }
+                val tried = backendsToTry.joinToString(" → ") { it.first }
                 throw IllegalStateException(
-                    "LiteRT-LM failed on every backend (NPU → GPU → CPU). Last error: ${lastError?.message}",
+                    "LiteRT-LM failed on every backend ($tried). Last error: ${lastError?.message}",
                     lastError,
                 )
             }
         }
-    }
-
-    /**
-     * NPU first when the device's `nativeLibraryDir` exists (vendor libs are
-     * typically loaded from there for QCS / Pixel chips), then GPU, then CPU.
-     * On unsupported devices NPU init throws and we fall through.
-     */
-    /**
-     * Returns backends to try in order: NPU (fastest, dedicated silicon) →
-     * GPU (good throughput, universally available on Android) → CPU (fallback,
-     * always available). NPU is gated on [nativeLibDir] being non-blank because
-     * LiteRT-LM requires the path to the delegated `.so` shipped in the AAR.
-     *
-     * The caller tries each backend in order and uses the first that succeeds
-     * in loading the model. To prefer a different order or restrict to CPU-only,
-     * change the list here; no other code needs updating.
-     */
-    private fun backendsInPriorityOrder(nativeLibDir: String): List<Pair<String, Backend>> {
-        val list = mutableListOf<Pair<String, Backend>>()
-        if (nativeLibDir.isNotBlank()) {
-            list.add("NPU" to Backend.NPU(nativeLibDir))
-        }
-        list.add("GPU" to Backend.GPU())
-        // null = default thread count picked by the runtime.
-        list.add("CPU" to Backend.CPU(null))
-        return list
     }
 
     override suspend fun generate(prompt: String, maxTokens: Int): String =
