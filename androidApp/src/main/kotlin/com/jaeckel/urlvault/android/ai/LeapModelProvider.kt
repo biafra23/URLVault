@@ -95,7 +95,7 @@ class LeapModelProvider(
             ensureLoaded()
             bridge.generateStructured(prompt = task, jsonSchema = schema, maxTokens = 192)
         }
-        Log.v(TAG, "[$id] tags raw: $raw")
+        Log.i(TAG, "[$id] tags raw: $raw")
 
         val parsed = parseJson<TagsExtraction>(raw)
         parsed.tags
@@ -125,22 +125,33 @@ class LeapModelProvider(
             }
         """.trimIndent()
 
+        // LFM2 Extract is fine-tuned for extraction, not generation. Frame
+        // this as "extract a summary from the supplied text" rather than
+        // "write a description"; otherwise the model has nothing to extract,
+        // the grammar still forces a non-empty string, and we get garbage
+        // (the original prompt produced a single-comma description).
         val task = buildString {
-            appendLine("Write a 1-2 sentence factual description for this bookmark.")
+            appendLine("Extract a 1-2 sentence summary describing what the web page below is about. Use only information present in the supplied text.")
+            appendLine()
             appendLine("URL: $url")
             if (title.isNotBlank()) appendLine("Title: $title")
             if (pageSummary.isNotBlank()) {
-                appendLine("Page summary: $pageSummary")
+                appendLine("Page content:")
+                appendLine(pageSummary)
             } else {
-                appendLine("If you cannot determine what the page is about, set description to: Unable to generate description.")
+                // No page content fetched — give the model something concrete
+                // to extract from rather than asking it to invent prose.
+                appendLine("Page content: (unavailable — derive a one-sentence summary from the URL and title only)")
             }
+            appendLine()
+            appendLine("Return the extracted summary as the \"description\" field.")
         }
 
         val raw = mutex.withLock {
             ensureLoaded()
             bridge.generateStructured(prompt = task, jsonSchema = schema, maxTokens = 192)
         }
-        Log.v(TAG, "[$id] description raw: $raw")
+        Log.i(TAG, "[$id] description raw: $raw")
 
         validateDescription(parseJson<DescriptionExtraction>(raw).description.trim())
     }
@@ -167,17 +178,25 @@ class LeapModelProvider(
             }
         """.trimIndent()
 
+        // Same extraction framing as description: the Extract fine-tune
+        // wants "extract X from supplied text", not "generate X".
         val task = buildString {
-            appendLine("Generate a short, descriptive title for this bookmark (max 6 words).")
+            appendLine("Extract a short descriptive title (max 6 words) for the web page below. Use only information present in the supplied text.")
+            appendLine()
             appendLine("URL: $url")
-            if (pageSummary.isNotBlank()) appendLine("Page summary: $pageSummary")
+            if (pageSummary.isNotBlank()) {
+                appendLine("Page content:")
+                appendLine(pageSummary)
+            }
+            appendLine()
+            appendLine("Return the extracted title as the \"title\" field.")
         }
 
         val raw = mutex.withLock {
             ensureLoaded()
             bridge.generateStructured(prompt = task, jsonSchema = schema, maxTokens = 96)
         }
-        Log.v(TAG, "[$id] title raw: $raw")
+        Log.i(TAG, "[$id] title raw: $raw")
 
         parseJson<TitleExtraction>(raw).title.trim().removeSurrounding("\"")
     }
