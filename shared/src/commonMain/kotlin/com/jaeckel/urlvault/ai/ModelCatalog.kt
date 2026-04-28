@@ -91,8 +91,8 @@ object ModelCatalog {
             displayName = "Liquid AI LFM2 1.2B Extract (LEAP, JSON)",
             runtime = ModelRuntime.LEAP,
             hfRepo = "LiquidAI/LeapBundles",
-            hfFile = "LFM2-1.2B-Extract-8da4w_output_8da8w-seq_4096.bundle",
-            approxBytes = 1100L * 1024 * 1024,
+            hfFile = "lfm2-1.2B-extract-8da8w.bundle",
+            approxBytes = 884L * 1024 * 1024,
             license = "LFM Open License",
             builtIn = true,
             notes = "Fine-tuned for structured JSON extraction. Runs through LeapSDK with " +
