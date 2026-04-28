@@ -37,7 +37,9 @@ import com.jaeckel.urlvault.ui.SettingsScreen
 import com.jaeckel.urlvault.ui.theme.URLVaultTheme
 import com.jaeckel.urlvault.viewmodel.BookmarkViewModel
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -129,14 +131,25 @@ class MainActivity : ComponentActivity() {
                     else -> null
                 }
 
-                // True when AICore OR any downloaded local model is ready to serve a request.
-                // Re-polled whenever AICore status, downloads, or the active-IDs set changes,
-                // so the AI path turns on as soon as any provider becomes usable.
+                // True when AICore OR any registered local provider is ready to
+                // serve a request. Re-polled when AICore status or the
+                // active-IDs set changes — NOT on every download tick. Provider
+                // readiness comes from a class-loader probe on registration, so
+                // per-chunk download progress doesn't move the needle and would
+                // otherwise re-run the probe thousands of times per download.
+                //
+                // The probe itself runs on Dispatchers.Default: produceState's
+                // body inherits the composition (main) dispatcher, and the
+                // first call to a provider's lazy classLoaderProbe does a
+                // synchronous Class.forName which we don't want on the UI
+                // thread.
                 val anyProviderReady by produceState(
                     initialValue = aiCoreStatus is AICoreStatus.Available,
-                    aiCoreStatus, downloadStates, activeIds,
+                    aiCoreStatus, activeIds,
                 ) {
-                    value = localModelRouter.hasReadyProvider()
+                    value = withContext(Dispatchers.Default) {
+                        localModelRouter.hasReadyProvider()
+                    }
                 }
 
                 Column(
