@@ -73,9 +73,10 @@ class LiteRtLmModelProvider(
         val pageContent = runCatching { contentExtractor.extract(url) }.getOrNull()
         val pageSummary = pageContent?.bestSummary(MAX_PAGE_CONTENT_LENGTH).orEmpty()
 
-        val schema = """
-            {"tags": ["..."]}
-        """.trimIndent()
+        // Concrete example, not a schema. Chat models follow examples better
+        // than schema-style ellipses ("..."), and there's no grammar
+        // constraint to lean on.
+        val example = """{"tags": ["android", "kotlin", "security"]}"""
 
         val task = buildString {
             appendLine("Suggest 3 to 6 short, descriptive, lowercase tags for this bookmark.")
@@ -92,12 +93,19 @@ class LiteRtLmModelProvider(
 
         val raw = mutex.withLock {
             ensureLoaded()
-            bridge.generateStructured(prompt = task, jsonSchema = schema, maxTokens = 192)
+            bridge.generateStructured(prompt = task, jsonSchema = example, maxTokens = 192)
         }
         Log.i(TAG, "[$id] tags raw: $raw")
 
-        val parsed = parseJson<TagsExtraction>(raw)
-        parsed.tags
+        // Try strict JSON first; if the model emitted prose instead, fall
+        // back to a comma/newline split and continue rather than failing
+        // outright.
+        val tags = runCatching { parseJson<TagsExtraction>(raw).tags }
+            .getOrElse {
+                Log.w(TAG, "[$id] tags JSON parse failed, falling back to free-text split")
+                parseTagsFreeText(raw)
+            }
+        tags
             .map { it.trim().lowercase() }
             .filter { it.isNotBlank() && it.length in 2..30 }
             .distinct()
@@ -109,9 +117,7 @@ class LiteRtLmModelProvider(
         val pageContent = runCatching { contentExtractor.extract(url) }.getOrNull()
         val pageSummary = pageContent?.bestSummary(MAX_PAGE_CONTENT_LENGTH).orEmpty()
 
-        val schema = """
-            {"description": "..."}
-        """.trimIndent()
+        val example = """{"description": "A Kotlin Multiplatform tutorial covering shared UI with Compose."}"""
 
         val task = buildString {
             appendLine("Write a 1-2 sentence factual description for this bookmark, max 300 characters.")
@@ -126,11 +132,20 @@ class LiteRtLmModelProvider(
 
         val raw = mutex.withLock {
             ensureLoaded()
-            bridge.generateStructured(prompt = task, jsonSchema = schema, maxTokens = 192)
+            bridge.generateStructured(prompt = task, jsonSchema = example, maxTokens = 192)
         }
         Log.i(TAG, "[$id] description raw: $raw")
 
-        validateDescription(parseJson<DescriptionExtraction>(raw).description.trim())
+        // Strict JSON first, raw text as fallback (after stripping fences /
+        // common preambles). Chat models often answer with prose when given
+        // a soft schema; we still want a usable description out the other
+        // side rather than a hard error.
+        val text = runCatching { parseJson<DescriptionExtraction>(raw).description }
+            .getOrElse {
+                Log.w(TAG, "[$id] description JSON parse failed, using free-text fallback")
+                cleanFreeText(raw)
+            }
+        validateDescription(text.trim())
     }
 
     override suspend fun generateTitle(url: String): Result<String> = runCatching {
@@ -140,9 +155,7 @@ class LiteRtLmModelProvider(
         if (!nativeTitle.isNullOrBlank()) return@runCatching nativeTitle
 
         val pageSummary = pageContent.bestSummary(MAX_PAGE_CONTENT_LENGTH)
-        val schema = """
-            {"title": "..."}
-        """.trimIndent()
+        val example = """{"title": "Compose Multiplatform Quickstart"}"""
 
         val task = buildString {
             appendLine("Write a short, descriptive title for this bookmark (max 6 words).")
@@ -156,11 +169,16 @@ class LiteRtLmModelProvider(
 
         val raw = mutex.withLock {
             ensureLoaded()
-            bridge.generateStructured(prompt = task, jsonSchema = schema, maxTokens = 96)
+            bridge.generateStructured(prompt = task, jsonSchema = example, maxTokens = 96)
         }
         Log.i(TAG, "[$id] title raw: $raw")
 
-        parseJson<TitleExtraction>(raw).title.trim().removeSurrounding("\"")
+        val text = runCatching { parseJson<TitleExtraction>(raw).title }
+            .getOrElse {
+                Log.w(TAG, "[$id] title JSON parse failed, using free-text fallback")
+                cleanFreeText(raw)
+            }
+        text.trim().removeSurrounding("\"")
     }
 
     private inline fun <reified T> parseJson(raw: String): T {
@@ -179,6 +197,47 @@ class LiteRtLmModelProvider(
         val start = trimmed.indexOf('{')
         val end = trimmed.lastIndexOf('}')
         return if (start >= 0 && end > start) trimmed.substring(start, end + 1) else null
+    }
+
+    /**
+     * Used when JSON extraction failed for a tags request — try to recover
+     * the list from prose like "android, kotlin, security" or
+     * "1. android\n2. kotlin\n3. security".
+     */
+    private fun parseTagsFreeText(raw: String): List<String> {
+        return raw.split(Regex("[,\\n;]+"))
+            .map { line ->
+                line.trim()
+                    .removePrefix("```json").removePrefix("```").removeSuffix("```")
+                    // Strip list markers like "1." / "1)" / "-" / "*"
+                    .replace(Regex("^\\s*(?:[0-9]+[.)]|[-*])\\s*"), "")
+                    .trim()
+                    .removeSurrounding("\"")
+                    .removeSurrounding("'")
+                    .lowercase()
+                    .replace(Regex("[^a-z0-9\\s-]"), "")
+                    .trim()
+            }
+            .filter { it.isNotBlank() }
+    }
+
+    /**
+     * Used when JSON extraction failed for a description / title request.
+     * Strips markdown fences and common LLM preambles ("Sure! Here is...",
+     * "Here's a description:") to leave a usable string.
+     */
+    private fun cleanFreeText(raw: String): String {
+        val stripped = raw.trim()
+            .removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            .removePrefix("Sure!").removePrefix("Sure,").removePrefix("Sure")
+            .removePrefix("Here is").removePrefix("Here's").removePrefix("Here are")
+            .removePrefix("Of course!").removePrefix("Certainly!")
+            .trim()
+            .removePrefix(":").removePrefix(",").trim()
+        // If the model embedded a quoted string anywhere, prefer it over
+        // surrounding prose.
+        val quoted = Regex("\"([^\"]{4,})\"").find(stripped)?.groupValues?.get(1)
+        return (quoted ?: stripped).lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().trim()
     }
 
     suspend fun close() {

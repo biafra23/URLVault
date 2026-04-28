@@ -134,12 +134,16 @@ class LiteRtLmSdkBridge(private val context: Context) : LiteRtLmNativeBridge {
         jsonSchema: String,
         maxTokens: Int,
     ): String = mutex.withLock {
-        // No grammar-constrained sampler in this SDK — bake the schema into
-        // the prompt and let the provider's parser handle messy output.
+        // No grammar-constrained sampler in this SDK — best the bridge can
+        // do is push hard for the right shape. Show the provider's
+        // example-output (passed in as `jsonSchema`) and explicitly forbid
+        // commentary / markdown / code fences. The provider's parser falls
+        // back to free-text extraction when this prompt nudge isn't enough.
         val combined = buildString {
             append(prompt)
-            append("\n\nRespond with ONLY a JSON object that conforms to this schema (no commentary, no markdown fences):\n")
+            append("\n\nReturn ONLY a single JSON object on one line, matching this exact shape:\n")
             append(jsonSchema)
+            append("\nDo not add prose, commentary, or code fences. Start your response with '{'.")
         }
         runCollect(combined, maxTokens)
     }
