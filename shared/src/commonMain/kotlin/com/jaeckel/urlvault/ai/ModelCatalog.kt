@@ -87,24 +87,23 @@ object ModelCatalog {
             notes = "~800 MB. True 1B-param Gemma — same size class as LFM2 1.2B; one generation older than Gemma 4.",
         ),
         ModelCatalogEntry(
-            id = "leap:lfm2-1.2b",
-            displayName = "Liquid AI LFM2 1.2B (LEAP, JSON)",
+            id = "leap:lfm2-1.2b-extract",
+            displayName = "Liquid AI LFM2 1.2B Extract (LEAP, JSON)",
             runtime = ModelRuntime.LEAP,
             hfRepo = "LiquidAI/LeapBundles",
-            // Must be a "new-format" bundle (filename pattern
-            // *_output_8da8w-seq_4096.bundle). leap-sdk 0.10 rejects the older
-            // lowercase variants (lfm2-1.2B-extract-8da8w.bundle etc.) with
-            // "No loader found for the options". The Extract fine-tune only
-            // ships in the old format, so we use the base 1.2B instead and
-            // rely on grammar-constrained JSON output for schema correctness.
-            hfFile = "LFM2-1.2B-8da4w_output_8da8w-seq_4096.bundle",
-            approxBytes = 881L * 1024 * 1024,
+            // Old-format bundle. Only loadable on leap-sdk <= 0.9.x —
+            // 0.10.x dropped the loader for this filename pattern with
+            // "No loader found for the options". We pin leap-sdk to 0.9.7
+            // (see gradle/libs.versions.toml) specifically to keep this
+            // bundle usable, since Liquid hasn't republished the Extract
+            // fine-tune in the new '*_output_8da8w-seq_4096.bundle' format.
+            hfFile = "lfm2-1.2B-extract-8da8w.bundle",
+            approxBytes = 884L * 1024 * 1024,
             license = "LFM Open License",
             builtIn = true,
-            notes = "Same base model as the llama.cpp LFM2 1.2B entry, but run via LeapSDK. " +
-                "Schema-valid JSON output comes from Leap's grammar-constrained sampler " +
-                "rather than from an Extract-specific fine-tune, since no Extract bundle " +
-                "is published in the format this SDK version supports.",
+            notes = "Fine-tuned for structured JSON extraction. Runs through LeapSDK with " +
+                "grammar-constrained JSON output, so tags / description / title are produced " +
+                "as schema-validated JSON rather than free-form text.",
         ),
         ModelCatalogEntry(
             id = "mediapipe:gemma-3-1b-it",

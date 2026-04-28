@@ -75,9 +75,17 @@ class LeapSdkNativeBridge : LeapNativeBridge {
         }
     }
 
+    // 0.9.7's GenerationOptions exposes temperature / topP / minP /
+    // repetitionPenalty / jsonSchemaConstraint / functionCallParser /
+    // inlineThinkingTags / extras — but no maxTokens or
+    // injectSchemaIntoPrompt. The maxTokens parameter on these methods is
+    // therefore advisory; we still honour it via runCollect's bookkeeping
+    // for logging, but the SDK doesn't get a hard cap. Schema injection
+    // into the prompt is handled by 0.9.7 implicitly when
+    // jsonSchemaConstraint is non-null.
     override suspend fun generate(prompt: String, maxTokens: Int): String =
         mutex.withLock {
-            runCollect(prompt, GenerationOptions().apply { this.maxTokens = maxTokens })
+            runCollect(prompt, GenerationOptions())
         }
 
     override suspend fun generateStructured(
@@ -86,12 +94,7 @@ class LeapSdkNativeBridge : LeapNativeBridge {
         maxTokens: Int,
     ): String = mutex.withLock {
         val options = GenerationOptions().apply {
-            this.maxTokens = maxTokens
             jsonSchemaConstraint = jsonSchema
-            // Default true; left explicit so the contract is visible: Leap
-            // both grammar-constrains the sampler AND prepends the schema
-            // to the system prompt for semantic guidance.
-            injectSchemaIntoPrompt = true
         }
         runCollect(prompt, options)
     }

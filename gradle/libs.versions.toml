@@ -19,7 +19,7 @@ sqliteJdbc = "3.47.1.0"
 slf4j = "2.0.16"
 mlkit-genai-prompt = "1.0.0-beta2"
 llamatik = "1.1.0"
-leap-sdk = "0.10.0-5-SNAPSHOT"
+leap-sdk = "0.9.7"
 
 [libraries]
 # Coroutines
@@ -78,10 +78,11 @@ mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "
 # LlamatikNativeBridge to back downloaded GGUF inference on Android.
 llamatik = { module = "com.llamatik:library", version.ref = "llamatik" }
 
-# Liquid AI Leap SDK — runs LFM2 family models with grammar-constrained JSON
-# output. Used as a second runtime alongside Llamatik for the LFM2 Extract
-# entry. Snapshot-only as of 2026-04; pin to a specific timestamp version
-# once a stable release is published.
+# Liquid AI Leap SDK — runs LFM2-family models with grammar-constrained
+# JSON output. Pinned to 0.9.7 (Maven Central stable) because 0.10.x dropped
+# loader support for the older 'lfm2-*-8da8w.bundle' filename pattern; the
+# Extract fine-tune is only published in that older format. Switch back to
+# a 0.10.x release once Liquid republishes Extract in the new format.
 leap-sdk = { module = "ai.liquid.leap:leap-sdk", version.ref = "leap-sdk" }
 leap-model-downloader = { module = "ai.liquid.leap:leap-model-downloader", version.ref = "leap-sdk" }
 
