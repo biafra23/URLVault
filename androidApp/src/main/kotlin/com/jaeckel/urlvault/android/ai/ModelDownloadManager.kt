@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.coroutineScope
@@ -233,7 +233,14 @@ class ModelDownloadManager(
                         // multi-hundred-MB models. 250 ms is fast enough to
                         // feel live but cheap enough to be inaudible.
                         var lastEmitMs = 0L
-                        while (isActive) {
+                        while (true) {
+                            // Throws CancellationException on cancel — the
+                            // earlier `while (isActive)` form let a cancelled
+                            // coroutine exit the loop cleanly, which then
+                            // looked indistinguishable from a normal EOF and
+                            // caused the caller to write `.complete` over a
+                            // partial file.
+                            ensureActive()
                             val read = input.read(buffer)
                             if (read <= 0) break
                             raf.write(buffer, 0, read)
@@ -253,10 +260,17 @@ class ModelDownloadManager(
                             it + (entry.id to ModelDownloadState.Downloading(written, totalBytes))
                         }
                     }
-                    // If the coroutine was cancelled mid-stream the loop exits
-                    // cleanly without throwing. Throw here so the caller doesn't
-                    // write the .complete marker for a partial file.
-                    if (!isActive) error("Download cancelled")
+                    // Premature-EOF guard: if the server told us the total via
+                    // Content-Length / Content-Range and we wrote fewer bytes,
+                    // the connection was cut short (CDN reset, network drop)
+                    // and the file on disk is partial. Throw so the caller's
+                    // catch leaves the bytes in place for resume but doesn't
+                    // create the `.complete` marker. When `contentLength` was
+                    // unreported we fall back to `entry.approxBytes`, which is
+                    // only approximate — skip the strict check in that case.
+                    if (contentLength > 0 && written != totalBytes) {
+                        error("Download truncated: wrote $written of $totalBytes bytes")
+                    }
                 } finally {
                     raf.close()
                 }
