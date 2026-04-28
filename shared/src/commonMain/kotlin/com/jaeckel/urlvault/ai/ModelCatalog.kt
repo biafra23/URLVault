@@ -106,6 +106,60 @@ object ModelCatalog {
                 "as schema-validated JSON rather than free-form text.",
         ),
         ModelCatalogEntry(
+            id = "litertlm:gemma-3-270m-it-q8",
+            displayName = "Google Gemma 3 270M IT (LiteRT-LM, q8)",
+            runtime = ModelRuntime.MEDIAPIPE,
+            hfRepo = "litert-community/gemma-3-270m-it",
+            hfFile = "gemma3-270m-it-q8.litertlm",
+            approxBytes = 280L * 1024 * 1024,
+            license = "Gemma Terms of Use",
+            builtIn = true,
+            notes = "~280 MB tiniest smoke-test. Gated on Hugging Face — needs " +
+                "an HF token (Gemma terms acceptance). LiteRT-LM has no " +
+                "grammar-constrained sampler, so JSON comes from prompt " +
+                "instructions and a defensive parser, not a hard guarantee.",
+        ),
+        ModelCatalogEntry(
+            id = "litertlm:functiongemma-270m-mobile-actions",
+            displayName = "Google FunctionGemma 270M Mobile Actions (LiteRT-LM)",
+            runtime = ModelRuntime.MEDIAPIPE,
+            hfRepo = "litert-community/functiongemma-270m-ft-mobile-actions",
+            hfFile = "mobile_actions_q8_ekv1024.litertlm",
+            approxBytes = 280L * 1024 * 1024,
+            license = "Gemma Terms of Use",
+            builtIn = true,
+            notes = "~280 MB. Fine-tuned for function-call (tool-use) JSON output, " +
+                "the closest LiteRT-LM analogue to LFM2-Extract. Still no grammar " +
+                "constraint — strict-JSON is best-effort via prompting. Gated; " +
+                "needs an HF token.",
+        ),
+        ModelCatalogEntry(
+            id = "litertlm:qwen3-0.6b",
+            displayName = "Alibaba Qwen3 0.6B (LiteRT-LM)",
+            runtime = ModelRuntime.MEDIAPIPE,
+            hfRepo = "litert-community/Qwen3-0.6B",
+            hfFile = "Qwen3-0.6B.litertlm",
+            approxBytes = 586L * 1024 * 1024,
+            license = "Apache 2.0",
+            builtIn = true,
+            notes = "~586 MB. Smallest open (ungated) LiteRT-LM model — no HF " +
+                "login needed. Modern instruction-tuned chat; reasonable JSON " +
+                "compliance via prompting alone.",
+        ),
+        ModelCatalogEntry(
+            id = "litertlm:gemma-3-1b-it-int4",
+            displayName = "Google Gemma 3 1B IT (LiteRT-LM, int4)",
+            runtime = ModelRuntime.MEDIAPIPE,
+            hfRepo = "litert-community/Gemma3-1B-IT",
+            hfFile = "gemma3-1b-it-int4.litertlm",
+            approxBytes = 620L * 1024 * 1024,
+            license = "Gemma Terms of Use",
+            builtIn = true,
+            notes = "~620 MB. Same base model as the llama.cpp Gemma 3 1B entry, " +
+                "via LiteRT-LM with NPU/GPU/CPU backend selection. Gated; needs " +
+                "an HF token.",
+        ),
+        ModelCatalogEntry(
             id = "litertlm:gemma-4-e2b-it",
             displayName = "Google Gemma 4 E2B IT (LiteRT-LM, NPU)",
             runtime = ModelRuntime.MEDIAPIPE,
