@@ -50,6 +50,7 @@ fun ModelComparisonScreen(
     var running by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<ModelComparisonRunner.ProviderResult>>(emptyList()) }
     var noProvidersMessage by remember { mutableStateOf<String?>(null) }
+    var progress by remember { mutableStateOf<ModelComparisonRunner.RunProgress?>(null) }
 
     val scope = rememberCoroutineScope()
 
@@ -115,15 +116,23 @@ fun ModelComparisonScreen(
                     running = true
                     noProvidersMessage = null
                     results = emptyList()
+                    progress = null
                     scope.launch {
                         try {
-                            val out = runner.runAll(url.trim(), title, description)
+                            val out = runner.runAll(
+                                url = url.trim(),
+                                title = title,
+                                userDescription = description,
+                                onProgress = { progress = it },
+                                onResult = { result -> results = results + result },
+                            )
                             results = out
                             if (out.isEmpty()) {
                                 noProvidersMessage = "No ready local models. Download one in Settings → Local AI Models."
                             }
                         } finally {
                             running = false
+                            progress = null
                         }
                     }
                 },
@@ -139,6 +148,23 @@ fun ModelComparisonScreen(
                 } else {
                     Text("Run comparison")
                 }
+            }
+
+            if (running) {
+                val currentProgress = progress
+                val progressText = when {
+                    currentProgress == null -> "Preparing comparison..."
+                    currentProgress.totalProviders == 0 -> "Looking for ready local models..."
+                    currentProgress.activeProviderDisplayName != null ->
+                        "Completed ${currentProgress.completedProviders}/${currentProgress.totalProviders} - Running ${currentProgress.activeProviderDisplayName}"
+                    else ->
+                        "Completed ${currentProgress.completedProviders}/${currentProgress.totalProviders}"
+                }
+                Text(
+                    text = progressText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             noProvidersMessage?.let {

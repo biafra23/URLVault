@@ -10,6 +10,12 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 class ModelComparisonRunner(private val registry: LocalModelRegistry) {
 
+    data class RunProgress(
+        val completedProviders: Int,
+        val totalProviders: Int,
+        val activeProviderDisplayName: String? = null,
+    )
+
     data class ProviderResult(
         val providerId: String,
         val displayName: String,
@@ -26,17 +32,34 @@ class ModelComparisonRunner(private val registry: LocalModelRegistry) {
     /**
      * Runs all three generation calls (tags, description, title) for every
      * ready provider. A per-call timeout prevents one stuck provider from
-     * blocking the comparison.
+     * blocking the comparison. Progress and individual provider results are
+     * reported incrementally so the UI can update while the batch is running.
      */
     suspend fun runAll(
         url: String,
         title: String,
         userDescription: String,
         perCallTimeoutMs: Long = 60_000,
+        onProgress: (RunProgress) -> Unit = {},
+        onResult: (ProviderResult) -> Unit = {},
     ): List<ProviderResult> {
         val ready = registry.snapshot().filter { runCatching { it.isReady() }.getOrDefault(false) }
-        return ready.map { provider ->
-            try {
+        if (ready.isEmpty()) {
+            onProgress(RunProgress(completedProviders = 0, totalProviders = 0))
+            return emptyList()
+        }
+
+        val results = mutableListOf<ProviderResult>()
+        onProgress(
+            RunProgress(
+                completedProviders = 0,
+                totalProviders = ready.size,
+                activeProviderDisplayName = ready.first().displayName,
+            ),
+        )
+
+        ready.forEachIndexed { index, provider ->
+            val result = try {
                 val tagsStart = currentTimeMillis()
                 val tagsResult = withTimeoutOrNull(perCallTimeoutMs) {
                     provider.generateTags(url, title, userDescription)
@@ -73,11 +96,11 @@ class ModelComparisonRunner(private val registry: LocalModelRegistry) {
                     titleMs = titleMs,
                     error = listOfNotNull(
                         if (tagsTimedOut) "tags: timed out after ${perCallTimeoutMs}ms"
-                        else tagsResult?.exceptionOrNull()?.message?.let { "tags: $it" },
+                        else tagsResult.exceptionOrNull()?.message?.let { "tags: $it" },
                         if (descTimedOut) "desc: timed out after ${perCallTimeoutMs}ms"
-                        else descResult?.exceptionOrNull()?.message?.let { "desc: $it" },
+                        else descResult.exceptionOrNull()?.message?.let { "desc: $it" },
                         if (titleTimedOut) "title: timed out after ${perCallTimeoutMs}ms"
-                        else titleResult?.exceptionOrNull()?.message?.let { "title: $it" },
+                        else titleResult.exceptionOrNull()?.message?.let { "title: $it" },
                     ).joinToString("; ").ifBlank { null },
                 )
             } catch (e: TimeoutCancellationException) {
@@ -109,7 +132,17 @@ class ModelComparisonRunner(private val registry: LocalModelRegistry) {
                     error = e.message ?: "Unknown error",
                 )
             }
+            results += result
+            onResult(result)
+            onProgress(
+                RunProgress(
+                    completedProviders = results.size,
+                    totalProviders = ready.size,
+                    activeProviderDisplayName = ready.getOrNull(index + 1)?.displayName,
+                ),
+            )
         }
+        return results
     }
 }
 
