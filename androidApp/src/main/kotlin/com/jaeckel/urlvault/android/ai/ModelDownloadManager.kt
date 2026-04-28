@@ -27,6 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "ModelDownloadManager"
 private const val BUFFER_BYTES = 64 * 1024
+private const val PROGRESS_EMIT_INTERVAL_MS = 250L
 
 /**
  * Downloads catalog models from Hugging Face directly into the app's external
@@ -200,6 +201,16 @@ class ModelDownloadManager(
                 token = token,
             )
 
+            // BufferedInputStream.read() is a blocking JVM call — coroutine
+            // cancellation alone doesn't interrupt it, so a user "Cancel" can
+            // sit for up to readTimeout (60s) before the loop notices. Hook
+            // the current Job so cancellation immediately disconnects the
+            // socket; the in-flight read() then throws IOException and the
+            // finally block below tidies up.
+            coroutineContext[Job]?.invokeOnCompletion { cause ->
+                if (cause != null) runCatching { connection.disconnect() }
+            }
+
             try {
                 val totalBytes = if (isPartial && contentLength > 0) {
                     existing + contentLength
@@ -216,14 +227,30 @@ class ModelDownloadManager(
 
                     BufferedInputStream(connection.inputStream).use { input ->
                         val buffer = ByteArray(BUFFER_BYTES)
+                        // Throttle UI flow emissions: a 64 KB buffer at typical
+                        // CDN throughput fires several thousand times per
+                        // second, which would thrash Compose recomposition for
+                        // multi-hundred-MB models. 250 ms is fast enough to
+                        // feel live but cheap enough to be inaudible.
+                        var lastEmitMs = 0L
                         while (isActive) {
                             val read = input.read(buffer)
                             if (read <= 0) break
                             raf.write(buffer, 0, read)
                             written += read
-                            _states.update {
-                                it + (entry.id to ModelDownloadState.Downloading(written, totalBytes))
+                            val now = System.currentTimeMillis()
+                            if (now - lastEmitMs >= PROGRESS_EMIT_INTERVAL_MS) {
+                                _states.update {
+                                    it + (entry.id to ModelDownloadState.Downloading(written, totalBytes))
+                                }
+                                lastEmitMs = now
                             }
+                        }
+                        // Final flush so the bar always lands on the true
+                        // byte count rather than wherever the throttle last
+                        // fired.
+                        _states.update {
+                            it + (entry.id to ModelDownloadState.Downloading(written, totalBytes))
                         }
                     }
                     // If the coroutine was cancelled mid-stream the loop exits
