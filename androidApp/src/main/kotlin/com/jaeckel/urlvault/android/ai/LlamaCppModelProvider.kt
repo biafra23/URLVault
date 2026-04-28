@@ -34,6 +34,14 @@ class LlamaCppModelProvider(
 
     override suspend fun isReady(): Boolean = bridge.isAvailable()
 
+    override suspend fun preload() {
+        // The Llamatik bridge holds a singleton model. Activating one
+        // provider clears another, so warming a second provider before the
+        // first request would swap the active singleton — matches the
+        // radio-button activation semantics described in MainActivity.
+        mutex.withLock { ensureLoaded() }
+    }
+
     /**
      * Always delegates to the bridge. The bridge owns the singleton
      * "currently-loaded model" state — a per-provider `loaded` flag would

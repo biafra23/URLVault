@@ -41,6 +41,12 @@ class LeapModelProvider(
 
     override suspend fun isReady(): Boolean = bridge.isAvailable()
 
+    override suspend fun preload() {
+        // Mutex matches ensureLoaded() so a concurrent generate() can't race
+        // a warm-up call into LeapClient.loadModel.
+        mutex.withLock { ensureLoaded() }
+    }
+
     private suspend fun ensureLoaded() {
         bridge.load(modelFile)
     }

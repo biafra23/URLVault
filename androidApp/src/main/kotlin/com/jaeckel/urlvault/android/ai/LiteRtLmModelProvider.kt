@@ -40,6 +40,12 @@ class LiteRtLmModelProvider(
 
     override suspend fun isReady(): Boolean = bridge.isAvailable()
 
+    override suspend fun preload() {
+        // Same mutex as the generate path so an inference call can't race a
+        // warm-up into the LiteRT-LM Engine constructor.
+        mutex.withLock { ensureLoaded() }
+    }
+
     private suspend fun ensureLoaded() {
         bridge.load(modelFile)
     }

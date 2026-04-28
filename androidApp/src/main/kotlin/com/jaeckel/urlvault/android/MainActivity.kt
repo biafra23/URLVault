@@ -32,6 +32,8 @@ import com.jaeckel.urlvault.ui.ModelComparisonScreen
 import com.jaeckel.urlvault.ui.SettingsScreen
 import com.jaeckel.urlvault.ui.theme.URLVaultTheme
 import com.jaeckel.urlvault.viewmodel.BookmarkViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -49,6 +51,10 @@ class MainActivity : ComponentActivity() {
     private val modelDownloadManager: ModelDownloadManager by inject()
     private val modelComparisonRunner: ModelComparisonRunner by inject()
     private val localModelRouter: LocalModelRouter by inject()
+    // Background scope from DI (Dispatchers.IO + SupervisorJob) — survives
+    // Activity recreation, so a model warm-up triggered by an activation
+    // toggle keeps running even if the user rotates the screen mid-load.
+    private val appScope: CoroutineScope by inject()
 
     /** Hoisted so onNewIntent can update navigation state. */
     private var currentScreen by mutableStateOf<Screen>(Screen.List)
@@ -198,6 +204,7 @@ class MainActivity : ComponentActivity() {
                                     "MainActivity",
                                     "onToggleAiCoreActive: active=$active -> activeIds=$activeIds",
                                 )
+                                if (active) appScope.launch { localModelRouter.warmUpActive() }
                             },
                             localModelCatalog = catalog,
                             localModelStates = downloadStates,
@@ -221,6 +228,9 @@ class MainActivity : ComponentActivity() {
                                     "MainActivity",
                                     "onToggleModelActive: id=${entry.id} active=$active -> activeIds=$activeIds",
                                 )
+                                // Pre-warm the newly-active model so the first
+                                // generate() call doesn't pay model-load cost.
+                                if (active) appScope.launch { localModelRouter.warmUpActive() }
                             },
                             onAddCustomModel = { hfRepo, hfFile, displayName ->
                                 val newEntry = ModelCatalogEntry(

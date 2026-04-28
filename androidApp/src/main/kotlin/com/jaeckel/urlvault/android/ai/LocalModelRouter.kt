@@ -125,6 +125,38 @@ class LocalModelRouter(
      */
     suspend fun hasReadyProvider(): Boolean = pickWithReason().provider != null
 
+    /**
+     * Loads the weights for every active+registered provider into memory now,
+     * so the first generate() call doesn't pay model-load cost (which would
+     * skew the user-visible time-to-answer in comparisons). Called from app
+     * startup after rehydration and from the model-activation toggle in
+     * Settings. Cheap if the provider is already loaded — the bridges are
+     * idempotent on the same path.
+     */
+    suspend fun warmUpActive() {
+        val active = activeIdsProvider()
+        if (active.isEmpty()) {
+            Log.i(TAG, "warmUpActive: no active models, nothing to do")
+            return
+        }
+        registry.snapshot()
+            .filter { it.id in active }
+            .forEach { provider ->
+                val t0 = System.currentTimeMillis()
+                Log.i(TAG, "warmUpActive: preloading ${provider.id}")
+                runCatching { provider.preload() }
+                    .onSuccess {
+                        Log.i(
+                            TAG,
+                            "warmUpActive: ${provider.id} ready in ${System.currentTimeMillis() - t0}ms",
+                        )
+                    }
+                    .onFailure { e ->
+                        Log.w(TAG, "warmUpActive: preload failed for ${provider.id}: ${e.message}", e)
+                    }
+            }
+    }
+
     suspend fun generateTags(url: String, title: String, content: String): Result<List<String>> {
         val provider = pickAndEmit("tags")
             ?: return Result.failure(IllegalStateException("No ready local AI model"))

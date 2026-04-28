@@ -147,9 +147,15 @@ val appModule = module {
         // EncryptedSharedPreferences read + filesystem stat for every catalog
         // entry inline would hold up the first frame.
         val localPrefs = get<LocalModelPreferences>()
+        val routerForWarmup = get<LocalModelRouter>()
         get<CoroutineScope>().launch {
             val customEntries = localPrefs.loadCustomEntries()
             mgr.rehydrateFromDisk(ModelCatalog.builtIn + customEntries)
+            // After rehydration, providers for already-downloaded models are
+            // registered. Load weights for whichever the user marked active so
+            // the first generate() call doesn't eat model-load latency and
+            // skew the comparison numbers.
+            routerForWarmup.warmUpActive()
         }
         // Also wire the comparison runner into AICoreService so the DEBUG
         // benchmark covers all installed models, not just Gemini Nano.
