@@ -61,17 +61,39 @@ class ModelDownloadManager(
     fun fileFor(entry: ModelCatalogEntry): File = File(modelsDir(), entry.localFileName())
 
     /**
+     * Sidecar marker. Written only after the streaming write completes
+     * successfully — its presence is the signal that the bytes on disk are
+     * the *whole* model and not a half-finished download. A partial file by
+     * itself (no marker) is left on disk so the next download() call can
+     * resume via HTTP Range from where it stopped.
+     */
+    private fun completeMarkerFor(entry: ModelCatalogEntry): File =
+        File(modelsDir(), entry.localFileName() + ".complete")
+
+    /**
      * Scan the models directory at app start and re-register any GGUFs that
      * already match catalog entries. Keeps users from re-downloading after
-     * a process restart.
+     * a process restart. Only files with a `.complete` sidecar are treated
+     * as Ready — bare partial files remain on disk for resume.
      */
     fun rehydrateFromDisk(catalog: List<ModelCatalogEntry>) {
         catalog.forEach { entry ->
             if (entry.runtime != ModelRuntime.LLAMA_CPP && entry.runtime != ModelRuntime.LEAP && entry.runtime != ModelRuntime.MEDIAPIPE) return@forEach
             val file = fileFor(entry)
-            if (file.exists() && file.length() > 0) {
+            val marker = completeMarkerFor(entry)
+            if (file.exists() && file.length() > 0 && marker.exists()) {
                 _states.update { it + (entry.id to ModelDownloadState.Ready(file.absolutePath, file.length())) }
                 registerProvider(entry, file)
+            } else if (file.exists() && file.length() > 0) {
+                // Partial download survived a process kill — surface bytes-so-far
+                // so the UI shows progress and the user can hit Download to resume.
+                Log.i(
+                    TAG,
+                    "rehydrate: ${entry.id} partial (${file.length()} of ~${entry.approxBytes} bytes); awaiting resume",
+                )
+                _states.update {
+                    it + (entry.id to ModelDownloadState.Downloading(file.length(), entry.approxBytes))
+                }
             }
         }
     }
@@ -92,11 +114,20 @@ class ModelDownloadManager(
             _states.update { it + (entry.id to ModelDownloadState.Queued) }
             try {
                 val file = fileFor(entry)
+                val marker = completeMarkerFor(entry)
+                // Stale marker from a delete-then-redownload could falsely
+                // claim completion if the new download fails mid-way. Drop
+                // it before we start writing.
+                if (marker.exists()) marker.delete()
                 downloadStreaming(entry, file)
                 _states.update { it + (entry.id to ModelDownloadState.Verifying) }
                 if (!file.exists() || file.length() == 0L) {
                     error("Downloaded file is empty")
                 }
+                // Touch the marker only after the streaming write returned
+                // normally. A process kill mid-download leaves the bytes on
+                // disk but no marker, so rehydrate sees a partial.
+                marker.createNewFile()
                 _states.update { it + (entry.id to ModelDownloadState.Ready(file.absolutePath, file.length())) }
                 registerProvider(entry, file)
             } catch (e: Exception) {
@@ -117,7 +148,9 @@ class ModelDownloadManager(
     fun delete(entry: ModelCatalogEntry) {
         cancel(entry)
         val file = fileFor(entry)
+        val marker = completeMarkerFor(entry)
         if (file.exists()) file.delete()
+        if (marker.exists()) marker.delete()
         registry.unregister(entry.id)
         _states.update { it + (entry.id to ModelDownloadState.Idle) }
     }
