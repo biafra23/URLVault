@@ -12,19 +12,25 @@ import kotlinx.serialization.json.Json
 /**
  * Persists Bitwarden credentials in EncryptedSharedPreferences backed by Android Keystore.
  */
-class AndroidBitwardenPreferences(context: Context) {
+class AndroidBitwardenPreferences(private val context: Context) {
 
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
-
-    private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
-        context,
-        PREFS_NAME,
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    // Lazy so Koin DI construction is cheap. Building the MasterKey + the
+    // EncryptedSharedPreferences instance does Keystore key derivation
+    // (50–200ms on first launch) and we don't want that on the critical
+    // path of MainActivity.onCreate. The first method call pays the cost
+    // — by then we're past the first frame.
+    private val prefs: SharedPreferences by lazy {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        EncryptedSharedPreferences.create(
+            context,
+            PREFS_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
 
     private val json = Json { ignoreUnknownKeys = true }
 

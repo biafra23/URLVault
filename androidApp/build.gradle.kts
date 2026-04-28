@@ -41,6 +41,15 @@ android {
         versionName = appVersion
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Llamatik ships native libs for arm64-v8a, armeabi-v7a, x86, x86_64.
+        // libllama_jni.so alone is ~23 MB per ABI; restricting to arm64-v8a cuts
+        // ~90 MB of unused code from the APK. Every supported Android device
+        // (minSdk 31) is arm64-v8a-capable. Add x86_64 here if you need emulator
+        // support for local development.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     signingConfigs {
@@ -88,8 +97,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions {
-        jvmTarget = JvmTarget.JVM_11.target
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_11)
+        }
     }
 
     buildFeatures {
@@ -137,6 +148,24 @@ project.afterEvaluate {
     }
 }
 
+// LeapSDK transitively pulls androidx.core 1.17.0 (and a few related
+// AndroidX 1.x bumps) which require AGP 8.9.1+. We're on AGP 8.7.3.
+// Force-pin to 1.16.0, which is the highest version compatible with
+// AGP 8.7.3; 1.13.1 (the previous pin) caused a NoSuchMethodError
+// (getCutoutPath) in Compose Foundation Layout 1.10.0.
+configurations.configureEach {
+    resolutionStrategy.eachDependency {
+        // core-viewtree only exists on 1.0.x, leave it alone.
+        if (requested.group == "androidx.core" &&
+            requested.name in setOf("core", "core-ktx")) {
+            useVersion("1.16.0")
+        }
+        if (requested.group == "androidx.compose.ui" && requested.version == "1.9.0") {
+            useVersion("1.7.6")
+        }
+    }
+}
+
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
@@ -173,10 +202,33 @@ dependencies {
     // Serialization
     implementation(libs.kotlinx.serialization.json)
 
-    // Ktor (HTTP client for web page content fetching)
+    // Ktor (HTTP client for web page content fetching + Bitwarden sync)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.android)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.json)
 
     // ML Kit GenAI Prompt API (Gemini Nano on-device)
     implementation(libs.mlkit.genai.prompt)
+
+    // Liquid AI Leap SDK — runs LFM2 family models with grammar-constrained
+    // JSON output (used by LeapModelProvider for the LFM2-1.2B-Extract entry).
+    implementation(libs.leap.sdk)
+    implementation(libs.leap.model.downloader)
+
+    // Google LiteRT-LM — runs `.litertlm` bundles via NPU/GPU/CPU backends
+    // (used by LiteRtLmModelProvider for the Gemma 4 E2B entry).
+    implementation(libs.litertlm.android)
+
+    // Llamatik (llama.cpp via JNI; backs LlamatikNativeBridge).
+    // Local build from `ferranpons/Llamatik` main (closest tag: v1.1.1) with
+    // two patches on top — see filename suffix `+localfix`:
+    //   1. Defensive catch around the JSON-stream JNI entries — fixes the
+    //      SIGABRT in `nativeGenerateJsonStream` reported as Llamatik#90.
+    //   2. Renamed llama.cpp shared libraries (libllamatik_llama.so etc.) so
+    //      this AAR can coexist in the same APK with another SDK (e.g.
+    //      Leap, ai.liquid.leap:leap-sdk-android) that bundles its own
+    //      libllama.so / libggml*.so without filename collisions.
+    // Swap back to `libs.llamatik` once both fixes are published upstream.
+    implementation(files("libs/llamatik-v1.1.1-main+localfix.aar"))
 }

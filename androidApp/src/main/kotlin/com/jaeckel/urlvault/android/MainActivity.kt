@@ -2,24 +2,44 @@ package com.jaeckel.urlvault.android
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.jaeckel.urlvault.ai.AiProviderIds
+import com.jaeckel.urlvault.ai.ModelCatalog
+import com.jaeckel.urlvault.ai.ModelCatalogEntry
+import com.jaeckel.urlvault.ai.ModelComparisonRunner
+import com.jaeckel.urlvault.ai.ModelRuntime
 import com.jaeckel.urlvault.android.ai.AICoreService
 import com.jaeckel.urlvault.android.ai.AICoreStatus
+import com.jaeckel.urlvault.android.ai.LocalModelPreferences
+import com.jaeckel.urlvault.android.ai.LocalModelRouter
+import com.jaeckel.urlvault.android.ai.ModelDownloadManager
 import com.jaeckel.urlvault.android.sync.AndroidBitwardenPreferences
 import com.jaeckel.urlvault.model.Bookmark
 import com.jaeckel.urlvault.sync.BitwardenSyncService
 import com.jaeckel.urlvault.ui.AddEditBookmarkScreen
 import com.jaeckel.urlvault.ui.BookmarkListScreen
+import com.jaeckel.urlvault.ui.ModelComparisonScreen
+import com.jaeckel.urlvault.ui.ModelStatusBanner
 import com.jaeckel.urlvault.ui.SettingsScreen
 import com.jaeckel.urlvault.ui.theme.URLVaultTheme
 import com.jaeckel.urlvault.viewmodel.BookmarkViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -33,6 +53,14 @@ class MainActivity : ComponentActivity() {
     private val bitwardenPrefs: AndroidBitwardenPreferences by inject()
     private val syncService: BitwardenSyncService by inject()
     private val aiCoreService: AICoreService by inject()
+    private val localModelPrefs: LocalModelPreferences by inject()
+    private val modelDownloadManager: ModelDownloadManager by inject()
+    private val modelComparisonRunner: ModelComparisonRunner by inject()
+    private val localModelRouter: LocalModelRouter by inject()
+    // Background scope from DI (Dispatchers.IO + SupervisorJob) — survives
+    // Activity recreation, so a model warm-up triggered by an activation
+    // toggle keeps running even if the user rotates the screen mid-load.
+    private val appScope: CoroutineScope by inject()
 
     /** Hoisted so onNewIntent can update navigation state. */
     private var currentScreen by mutableStateOf<Screen>(Screen.List)
@@ -46,13 +74,52 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             URLVaultTheme {
-                var autoTagEnabled by mutableStateOf(bitwardenPrefs.loadAutoTagEnabled())
-                var aiCoreEnabled by mutableStateOf(bitwardenPrefs.loadAiCoreEnabled())
+                // Without `remember`, mutableStateOf is rebuilt every
+                // recomposition and re-hits EncryptedSharedPreferences
+                // (Keystore-backed AES). When a download flow is ticking
+                // that's tens of decrypts per second — a real ANR source.
+                var autoTagEnabled by remember { mutableStateOf(bitwardenPrefs.loadAutoTagEnabled()) }
+                var aiCoreEnabled by remember { mutableStateOf(bitwardenPrefs.loadAiCoreEnabled()) }
                 val aiCoreStatus by aiCoreService.status.collectAsState()
+                val downloadStates by modelDownloadManager.states.collectAsState()
+                val warmingIds by localModelRouter.warmingIds.collectAsState()
+                var customEntries by remember { mutableStateOf(localModelPrefs.loadCustomEntries()) }
+                var activeIds by remember { mutableStateOf(localModelPrefs.loadActiveIds()) }
+                // Settings reads two heavy values from EncryptedSharedPreferences:
+                // the Bitwarden credentials (decrypts via Keystore) and the
+                // field-history blob. Cache them in remembered state and only
+                // refresh when the user actually saves new credentials, so
+                // recomposition (e.g. for download-progress ticks) doesn't
+                // cost a Keystore round-trip every frame.
+                var savedCredentials by remember { mutableStateOf(bitwardenPrefs.loadCredentials()) }
+                var fieldHistory by remember { mutableStateOf(bitwardenPrefs.loadFieldHistory()) }
 
                 // Kick off AICore initialization once
                 LaunchedEffect(Unit) {
                     aiCoreService.initialize()
+                }
+
+                // DEBUG-only: surface which provider actually served each AI call
+                // so we can confirm an "activated" model is what's being used vs.
+                // silently falling back to AICore.
+                if (BuildConfig.DEBUG) {
+                    LaunchedEffect(Unit) {
+                        localModelRouter.events.collect { event ->
+                            val readinessLine = event.readiness.joinToString { (id, r) ->
+                                "${id.substringAfter(':')}=${if (r) "✓" else "✗"}"
+                            }
+                            val activeLine = if (event.activeIds.isEmpty()) "active=none"
+                                else "active=${event.activeIds.joinToString { it.substringAfter(':') }}"
+                            val head = when (event) {
+                                is LocalModelRouter.RouteEvent.Picked ->
+                                    "AI ${event.action}: ${event.providerName}\n${event.reason}"
+                                is LocalModelRouter.RouteEvent.None ->
+                                    "AI ${event.action}: NO PROVIDER\n${event.reason}"
+                            }
+                            val text = "$head\n$activeLine\n$readinessLine"
+                            Toast.makeText(this@MainActivity, text, Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }
 
                 // Show toggle for any status except Unknown (still probing)
@@ -64,6 +131,44 @@ class MainActivity : ComponentActivity() {
                     else -> null
                 }
 
+                // True when AICore OR any registered local provider is ready to
+                // serve a request. Re-polled when AICore status or the
+                // active-IDs set changes — NOT on every download tick. Provider
+                // readiness comes from a class-loader probe on registration, so
+                // per-chunk download progress doesn't move the needle and would
+                // otherwise re-run the probe thousands of times per download.
+                //
+                // The probe itself runs on Dispatchers.Default: produceState's
+                // body inherits the composition (main) dispatcher, and the
+                // first call to a provider's lazy classLoaderProbe does a
+                // synchronous Class.forName which we don't want on the UI
+                // thread.
+                val anyProviderReady by produceState(
+                    initialValue = aiCoreStatus is AICoreStatus.Available,
+                    aiCoreStatus, activeIds,
+                ) {
+                    value = withContext(Dispatchers.Default) {
+                        localModelRouter.hasReadyProvider()
+                    }
+                }
+
+                Column(
+                    // enableEdgeToEdge() lets content draw under the status
+                    // bar; without statusBarsPadding the banner would land
+                    // behind the system clock / battery icons.
+                    modifier = Modifier.statusBarsPadding(),
+                ) {
+                    // Persistent status banner — surfaces the active model
+                    // warming up or any in-flight download regardless of which
+                    // screen the user is on. Auto-hides when nothing is in
+                    // flight so the layout collapses back cleanly.
+                    ModelStatusBanner(
+                        warmingIds = warmingIds,
+                        downloadStates = downloadStates,
+                        activeIds = activeIds,
+                        catalog = ModelCatalog.builtIn + customEntries,
+                        aiCoreId = AiProviderIds.AICORE,
+                    )
                 when (val screen = currentScreen) {
                     is Screen.List -> BookmarkListScreen(
                         viewModel = bookmarkViewModel,
@@ -85,7 +190,7 @@ class MainActivity : ComponentActivity() {
                             autoTagState = autoTagState,
                             onAutoTag = { url -> bookmarkViewModel.fetchAutoTags(url) },
                             onAutoTagConsumed = { bookmarkViewModel.clearAutoTagState() },
-                            aiCoreEnabled = aiCoreEnabled && aiCoreStatus is AICoreStatus.Available,
+                            aiCoreEnabled = aiCoreEnabled && anyProviderReady,
                             aiTagState = aiTagState,
                             aiDescriptionState = aiDescriptionState,
                             aiTitleState = aiTitleState,
@@ -108,8 +213,9 @@ class MainActivity : ComponentActivity() {
                     }
 
                     is Screen.Settings -> {
+                        val catalog = ModelCatalog.builtIn + customEntries
                         SettingsScreen(
-                            currentCredentials = bitwardenPrefs.loadCredentials(),
+                            currentCredentials = savedCredentials,
                             syncService = syncService,
                             autoTagEnabled = autoTagEnabled,
                             onAutoTagEnabledChanged = { enabled ->
@@ -123,16 +229,80 @@ class MainActivity : ComponentActivity() {
                                 aiCoreEnabled = enabled
                                 bitwardenPrefs.saveAiCoreEnabled(enabled)
                             },
+                            onToggleAiCoreActive = { active ->
+                                // Same radio-button semantics as the Llama toggles —
+                                // selecting a provider clears any others.
+                                activeIds = if (active) setOf(AiProviderIds.AICORE)
+                                    else activeIds - AiProviderIds.AICORE
+                                localModelPrefs.saveActiveIds(activeIds)
+                                android.util.Log.i(
+                                    "MainActivity",
+                                    "onToggleAiCoreActive: active=$active -> activeIds=$activeIds",
+                                )
+                                if (active) appScope.launch { localModelRouter.warmUpActive() }
+                            },
+                            localModelCatalog = catalog,
+                            localModelStates = downloadStates,
+                            activeModelIds = activeIds,
+                            warmingModelIds = warmingIds,
+                            onDownloadModel = { entry -> modelDownloadManager.download(entry) },
+                            onCancelModelDownload = { entry -> modelDownloadManager.cancel(entry) },
+                            onDeleteModel = { entry ->
+                                modelDownloadManager.delete(entry)
+                                if (entry.id in activeIds) {
+                                    activeIds = activeIds - entry.id
+                                    localModelPrefs.saveActiveIds(activeIds)
+                                }
+                            },
+                            onToggleModelActive = { entry, active ->
+                                // Llamatik's LlamaBridge is a singleton — only one model
+                                // can be loaded at a time. Activating one clears the rest
+                                // so the toggle behaves like a radio button.
+                                activeIds = if (active) setOf(entry.id) else activeIds - entry.id
+                                localModelPrefs.saveActiveIds(activeIds)
+                                android.util.Log.i(
+                                    "MainActivity",
+                                    "onToggleModelActive: id=${entry.id} active=$active -> activeIds=$activeIds",
+                                )
+                                // Pre-warm the newly-active model so the first
+                                // generate() call doesn't pay model-load cost.
+                                if (active) appScope.launch { localModelRouter.warmUpActive() }
+                            },
+                            onAddCustomModel = { hfRepo, hfFile, displayName ->
+                                val newEntry = ModelCatalogEntry(
+                                    id = "custom:" + hfRepo.lowercase().replace('/', '_') + ":" + hfFile.lowercase(),
+                                    displayName = displayName,
+                                    runtime = ModelRuntime.LLAMA_CPP,
+                                    hfRepo = hfRepo,
+                                    hfFile = hfFile,
+                                    approxBytes = 0L,
+                                    license = "Unknown",
+                                    builtIn = false,
+                                )
+                                customEntries = (customEntries + newEntry).distinctBy { it.id }
+                                localModelPrefs.saveCustomEntries(customEntries)
+                            },
+                            onOpenComparison = { currentScreen = Screen.Comparison },
                             onSaveCredentials = { credentials ->
                                 bitwardenPrefs.saveCredentials(credentials)
                                 bitwardenPrefs.addToFieldHistory(credentials)
+                                savedCredentials = credentials
+                                fieldHistory = bitwardenPrefs.loadFieldHistory()
                                 bookmarkViewModel.configureBitwarden(credentials)
                             },
                             onNavigateBack = { currentScreen = Screen.List },
-                            fieldHistory = bitwardenPrefs.loadFieldHistory()
+                            fieldHistory = fieldHistory
+                        )
+                    }
+
+                    is Screen.Comparison -> {
+                        ModelComparisonScreen(
+                            runner = modelComparisonRunner,
+                            onNavigateBack = { currentScreen = Screen.Settings },
                         )
                     }
                 }
+                }   // close Column wrapping the banner + screen content
             }
         }
     }
@@ -160,4 +330,5 @@ sealed class Screen {
         val prefilledUrl: String? = null
     ) : Screen()
     data object Settings : Screen()
+    data object Comparison : Screen()
 }

@@ -41,6 +41,8 @@ kotlin {
             implementation(libs.slf4j.simple)
             implementation(libs.koin.core)
             implementation(libs.ktor.client.java)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.json)
             implementation(libs.jetbrains.lifecycle.viewmodel)
         }
     }

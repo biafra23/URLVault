@@ -1,10 +1,10 @@
 [versions]
-kotlin = "2.1.0"
+kotlin = "2.3.20"
 agp = "8.7.3"
-compose-multiplatform = "1.8.2"
+compose-multiplatform = "1.10.0"
 coroutines = "1.9.0"
-room = "2.6.1"
-ksp = "2.1.0-1.0.29"
+room = "2.8.4"
+ksp = "2.3.7"
 sqlcipher = "4.14.1"
 sqlite = "2.4.0"
 lifecycle = "2.8.7"
@@ -14,10 +14,13 @@ security-crypto = "1.1.0-alpha06"
 koin = "4.1.1"
 ktor = "3.0.3"
 kotlinx-serialization = "1.7.3"
-kotlinx-datetime = "0.6.1"
+kotlinx-datetime = "0.7.1"
 sqliteJdbc = "3.47.1.0"
 slf4j = "2.0.16"
 mlkit-genai-prompt = "1.0.0-beta2"
+llamatik = "1.1.0"
+leap-sdk = "0.9.7"
+litertlm = "0.10.2"
 
 [libraries]
 # Coroutines
@@ -71,6 +74,23 @@ ktor-client-logging = { module = "io.ktor:ktor-client-logging", version.ref = "k
 
 # ML Kit GenAI Prompt API (Gemini Nano on-device)
 mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "mlkit-genai-prompt" }
+
+# Llamatik — KMP wrapper around llama.cpp with prebuilt JNI .so files. Used by
+# LlamatikNativeBridge to back downloaded GGUF inference on Android.
+llamatik = { module = "com.llamatik:library", version.ref = "llamatik" }
+
+# Liquid AI Leap SDK — runs LFM2-family models with grammar-constrained
+# JSON output. Pinned to 0.9.7 (Maven Central stable) because 0.10.x dropped
+# loader support for the older 'lfm2-*-8da8w.bundle' filename pattern; the
+# Extract fine-tune is only published in that older format. Switch back to
+# a 0.10.x release once Liquid republishes Extract in the new format.
+leap-sdk = { module = "ai.liquid.leap:leap-sdk", version.ref = "leap-sdk" }
+leap-model-downloader = { module = "ai.liquid.leap:leap-model-downloader", version.ref = "leap-sdk" }
+
+# Google LiteRT-LM — Android runtime for .litertlm bundles (Gemma 4 / Gemma 3
+# / etc). Backends include CPU, GPU (Vulkan/OpenCL), and NPU when the device
+# ships vendor libs. Used to back the LiteRT-LM catalog row.
+litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 
 # Desktop SQLite
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqliteJdbc" }

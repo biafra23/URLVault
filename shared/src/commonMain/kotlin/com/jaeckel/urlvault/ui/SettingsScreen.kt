@@ -45,6 +45,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import com.jaeckel.urlvault.ai.AiProviderIds
+import com.jaeckel.urlvault.ai.ModelCatalogEntry
+import com.jaeckel.urlvault.ai.ModelDownloadState
+import com.jaeckel.urlvault.ai.ModelRuntime
 import com.jaeckel.urlvault.sync.BitwardenCredentials
 import com.jaeckel.urlvault.sync.BitwardenSyncService
 import com.jaeckel.urlvault.sync.SettingsFieldHistory
@@ -64,6 +68,17 @@ fun SettingsScreen(
     aiCoreEnabled: Boolean = false,
     aiCoreStatusText: String? = null,
     onAiCoreEnabledChanged: (Boolean) -> Unit = {},
+    onToggleAiCoreActive: (Boolean) -> Unit = {},
+    localModelCatalog: List<ModelCatalogEntry> = emptyList(),
+    localModelStates: Map<String, ModelDownloadState> = emptyMap(),
+    activeModelIds: Set<String> = emptySet(),
+    warmingModelIds: Set<String> = emptySet(),
+    onDownloadModel: (ModelCatalogEntry) -> Unit = {},
+    onCancelModelDownload: (ModelCatalogEntry) -> Unit = {},
+    onDeleteModel: (ModelCatalogEntry) -> Unit = {},
+    onToggleModelActive: (ModelCatalogEntry, Boolean) -> Unit = { _, _ -> },
+    onAddCustomModel: (hfRepo: String, hfFile: String, displayName: String) -> Unit = { _, _, _ -> },
+    onOpenComparison: () -> Unit = {},
     onSaveCredentials: (BitwardenCredentials) -> Unit,
     onNavigateBack: () -> Unit,
     fieldHistory: SettingsFieldHistory = SettingsFieldHistory(),
@@ -327,30 +342,109 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            if (aiCoreAvailable) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("AI-powered suggestions (on-device)", style = MaterialTheme.typography.bodyLarge)
-                    Switch(
-                        checked = aiCoreEnabled,
-                        onCheckedChange = onAiCoreEnabledChanged
-                    )
-                }
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider()
+
+            // --- AI Tagging Section ---
+            // One master toggle gates AI generation. When on, the user picks
+            // exactly one provider — AICore (when available) is shown as the
+            // top option, followed by the downloadable local models. AICore
+            // and Llama models share the same activeIds set; the toggle behaves
+            // like a radio button across the whole list.
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "AI Tagging",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Enable AI tagging", style = MaterialTheme.typography.bodyLarge)
+                Switch(
+                    checked = aiCoreEnabled,
+                    onCheckedChange = onAiCoreEnabledChanged
+                )
+            }
+            Text(
+                text = "Generate titles, descriptions, and tags for new bookmarks " +
+                    "using an on-device model. No data leaves your device.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (aiCoreEnabled) {
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Uses on-device AI to generate tags and descriptions. No data leaves your device.",
+                    text = "Choose model",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "Selecting a model deselects the others. If none is selected, " +
+                        "the first available model is used automatically.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (aiCoreStatusText != null) {
+
+                // Group providers by runtime so each backend (AICore /
+                // llama.cpp / Leap / LiteRT-LM) reads as its own subsection.
+                // Order matches the user-facing preference order: native first,
+                // not-yet-wired runtimes last.
+                val groupOrder = listOf(
+                    ModelRuntime.ML_KIT,
+                    ModelRuntime.LLAMA_CPP,
+                    ModelRuntime.LEAP,
+                    ModelRuntime.MEDIAPIPE,
+                )
+                val catalogByRuntime = localModelCatalog.groupBy { it.runtime }
+                groupOrder.forEach { runtime ->
+                    val entries = catalogByRuntime[runtime].orEmpty()
+                    val isAiCoreGroup = runtime == ModelRuntime.ML_KIT && aiCoreAvailable
+                    if (entries.isEmpty() && !isAiCoreGroup) return@forEach
+
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = aiCoreStatusText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
+                        text = runtimeSectionLabel(runtime),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+
+                    if (isAiCoreGroup) {
+                        AiCoreProviderRow(
+                            statusText = aiCoreStatusText,
+                            isActive = AiProviderIds.AICORE in activeModelIds,
+                            onToggleActive = onToggleAiCoreActive,
+                        )
+                    }
+                    entries.forEach { entry ->
+                        val state = localModelStates[entry.id] ?: ModelDownloadState.Idle
+                        ModelCatalogRow(
+                            entry = entry,
+                            state = state,
+                            isActive = entry.id in activeModelIds,
+                            isWarming = entry.id in warmingModelIds,
+                            onDownload = { onDownloadModel(entry) },
+                            onCancel = { onCancelModelDownload(entry) },
+                            onDelete = { onDeleteModel(entry) },
+                            onToggleActive = { onToggleModelActive(entry, it) },
+                        )
+                    }
+                }
+
+                CustomModelEntryRow(onAdd = onAddCustomModel)
+
+                Button(
+                    onClick = onOpenComparison,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Run model comparison")
                 }
             }
 
@@ -444,6 +538,243 @@ private fun AutocompleteTextField(
             }
         }
     }
+}
+
+/**
+ * Provider row for the AICore (Gemini Nano) entry. Shares the visual shape of
+ * `ModelCatalogRow` so AICore reads as one option among many, but omits the
+ * download/delete actions because the model is OS-managed.
+ */
+@Composable
+private fun AiCoreProviderRow(
+    statusText: String?,
+    isActive: Boolean,
+    onToggleActive: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Google Gemini Nano (AICore)",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "on-device • bundled with Android (no download)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = statusText ?: "Status unknown",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Active", style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.size(4.dp))
+                Switch(
+                    checked = isActive,
+                    onCheckedChange = onToggleActive,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelCatalogRow(
+    entry: ModelCatalogEntry,
+    state: ModelDownloadState,
+    isActive: Boolean,
+    isWarming: Boolean,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+    onToggleActive: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = entry.displayName,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = "${formatBytes(entry.approxBytes)} • ${entry.license}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (entry.notes.isNotBlank()) {
+                    Text(
+                        text = entry.notes,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+            }
+        }
+
+        // Status + action row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isWarming) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.size(8.dp))
+                }
+                Text(
+                    text = if (isWarming) "Loading model into memory…" else describeState(state),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when {
+                        isWarming -> MaterialTheme.colorScheme.primary
+                        state is ModelDownloadState.Failed -> MaterialTheme.colorScheme.error
+                        state is ModelDownloadState.Ready -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val isInProgress = state is ModelDownloadState.Downloading ||
+                    state is ModelDownloadState.Queued ||
+                    state is ModelDownloadState.Verifying
+                when {
+                    state is ModelDownloadState.Ready -> {
+                        Text("Active", style = MaterialTheme.typography.labelSmall)
+                        Spacer(Modifier.size(4.dp))
+                        Switch(
+                            checked = isActive,
+                            onCheckedChange = onToggleActive,
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Button(onClick = onDelete) { Text("Delete") }
+                    }
+                    isInProgress -> {
+                        Button(onClick = onCancel) { Text("Cancel") }
+                    }
+                    else -> {
+                        Button(onClick = onDownload) { Text("Download") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomModelEntryRow(
+    onAdd: (hfRepo: String, hfFile: String, displayName: String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var hfRepo by remember { mutableStateOf("") }
+    var hfFile by remember { mutableStateOf("") }
+    var displayName by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("Add custom GGUF from Hugging Face", style = MaterialTheme.typography.bodyLarge)
+            Switch(checked = expanded, onCheckedChange = { expanded = it })
+        }
+        if (expanded) {
+            OutlinedTextField(
+                value = hfRepo,
+                onValueChange = { hfRepo = it },
+                label = { Text("HF repo (e.g. LiquidAI/LFM2-1.2B-GGUF)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = hfFile,
+                onValueChange = { hfFile = it },
+                label = { Text("File name (e.g. LFM2-1.2B-Q4_K_M.gguf)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = displayName,
+                onValueChange = { displayName = it },
+                label = { Text("Display name (optional)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = {
+                    onAdd(hfRepo.trim(), hfFile.trim(), displayName.trim().ifBlank { "$hfRepo/$hfFile" })
+                    hfRepo = ""; hfFile = ""; displayName = ""
+                    expanded = false
+                },
+                enabled = hfRepo.isNotBlank() && hfFile.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Add to catalog") }
+        }
+    }
+}
+
+private fun runtimeSectionLabel(runtime: ModelRuntime): String = when (runtime) {
+    ModelRuntime.ML_KIT -> "AICore"
+    ModelRuntime.LLAMA_CPP -> "llama.cpp"
+    ModelRuntime.LEAP -> "Leap"
+    ModelRuntime.MEDIAPIPE -> "LiteRT-LM"
+}
+
+private fun describeState(state: ModelDownloadState): String = when (state) {
+    ModelDownloadState.Idle -> "Not downloaded"
+    ModelDownloadState.Queued -> "Queued..."
+    is ModelDownloadState.Downloading -> {
+        val pct = (state.progress * 100).toInt().coerceIn(0, 100)
+        "Downloading $pct% (${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.totalBytes)})"
+    }
+    ModelDownloadState.Verifying -> "Verifying..."
+    is ModelDownloadState.Ready -> "Ready (${formatBytes(state.sizeBytes)})"
+    is ModelDownloadState.Failed -> "Failed: ${state.reason}"
+}
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val units = arrayOf("B", "KB", "MB", "GB")
+    var value = bytes.toDouble()
+    var unit = 0
+    while (value >= 1024.0 && unit < units.size - 1) {
+        value /= 1024.0; unit++
+    }
+    val rounded = ((value * 10).toLong()) / 10.0
+    return "$rounded ${units[unit]}"
 }
 
 @Composable
