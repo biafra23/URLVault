@@ -150,14 +150,15 @@ project.afterEvaluate {
 
 // LeapSDK transitively pulls androidx.core 1.17.0 (and a few related
 // AndroidX 1.x bumps) which require AGP 8.9.1+. We're on AGP 8.7.3.
-// Force-pin to AGP-8.7-compatible versions; if Leap calls into a 1.17-only
-// API at runtime we'll see a NoSuchMethodError and need to bump AGP.
+// Force-pin to 1.16.0, which is the highest version compatible with
+// AGP 8.7.3; 1.13.1 (the previous pin) caused a NoSuchMethodError
+// (getCutoutPath) in Compose Foundation Layout 1.10.0.
 configurations.configureEach {
     resolutionStrategy.eachDependency {
         // core-viewtree only exists on 1.0.x, leave it alone.
         if (requested.group == "androidx.core" &&
             requested.name in setOf("core", "core-ktx")) {
-            useVersion("1.13.1")
+            useVersion("1.16.0")
         }
         if (requested.group == "androidx.compose.ui" && requested.version == "1.9.0") {
             useVersion("1.7.6")
