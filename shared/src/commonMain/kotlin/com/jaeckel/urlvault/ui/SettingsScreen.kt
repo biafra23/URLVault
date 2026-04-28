@@ -391,25 +391,49 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                if (aiCoreAvailable) {
-                    AiCoreProviderRow(
-                        statusText = aiCoreStatusText,
-                        isActive = AiProviderIds.AICORE in activeModelIds,
-                        onToggleActive = onToggleAiCoreActive,
-                    )
-                }
+                // Group providers by runtime so each backend (AICore /
+                // llama.cpp / Leap / LiteRT-LM) reads as its own subsection.
+                // Order matches the user-facing preference order: native first,
+                // not-yet-wired runtimes last.
+                val groupOrder = listOf(
+                    ModelRuntime.ML_KIT,
+                    ModelRuntime.LLAMA_CPP,
+                    ModelRuntime.LEAP,
+                    ModelRuntime.MEDIAPIPE,
+                )
+                val catalogByRuntime = localModelCatalog.groupBy { it.runtime }
+                groupOrder.forEach { runtime ->
+                    val entries = catalogByRuntime[runtime].orEmpty()
+                    val isAiCoreGroup = runtime == ModelRuntime.ML_KIT && aiCoreAvailable
+                    if (entries.isEmpty() && !isAiCoreGroup) return@forEach
 
-                localModelCatalog.forEach { entry ->
-                    val state = localModelStates[entry.id] ?: ModelDownloadState.Idle
-                    ModelCatalogRow(
-                        entry = entry,
-                        state = state,
-                        isActive = entry.id in activeModelIds,
-                        onDownload = { onDownloadModel(entry) },
-                        onCancel = { onCancelModelDownload(entry) },
-                        onDelete = { onDeleteModel(entry) },
-                        onToggleActive = { onToggleModelActive(entry, it) },
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = runtimeSectionLabel(runtime),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+
+                    if (isAiCoreGroup) {
+                        AiCoreProviderRow(
+                            statusText = aiCoreStatusText,
+                            isActive = AiProviderIds.AICORE in activeModelIds,
+                            onToggleActive = onToggleAiCoreActive,
+                        )
+                    }
+                    entries.forEach { entry ->
+                        val state = localModelStates[entry.id] ?: ModelDownloadState.Idle
+                        ModelCatalogRow(
+                            entry = entry,
+                            state = state,
+                            isActive = entry.id in activeModelIds,
+                            onDownload = { onDownloadModel(entry) },
+                            onCancel = { onCancelModelDownload(entry) },
+                            onDelete = { onDeleteModel(entry) },
+                            onToggleActive = { onToggleModelActive(entry, it) },
+                        )
+                    }
                 }
 
                 CustomModelEntryRow(onAdd = onAddCustomModel)
@@ -538,7 +562,7 @@ private fun AiCoreProviderRow(
                 fontWeight = FontWeight.Medium,
             )
             Text(
-                text = "ml_kit • on-device • bundled with Android (no download)",
+                text = "on-device • bundled with Android (no download)",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -594,7 +618,7 @@ private fun ModelCatalogRow(
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
-                    text = "${entry.runtime.name.lowercase()} • ${formatBytes(entry.approxBytes)} • ${entry.license}",
+                    text = "${formatBytes(entry.approxBytes)} • ${entry.license}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -708,6 +732,13 @@ private fun CustomModelEntryRow(
             ) { Text("Add to catalog") }
         }
     }
+}
+
+private fun runtimeSectionLabel(runtime: ModelRuntime): String = when (runtime) {
+    ModelRuntime.ML_KIT -> "AICore"
+    ModelRuntime.LLAMA_CPP -> "llama.cpp"
+    ModelRuntime.LEAP -> "Leap"
+    ModelRuntime.MEDIAPIPE -> "LiteRT-LM"
 }
 
 private fun describeState(state: ModelDownloadState): String = when (state) {
