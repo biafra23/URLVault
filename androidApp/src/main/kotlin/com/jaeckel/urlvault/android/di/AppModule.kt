@@ -157,9 +157,6 @@ val appModule = module {
             // skew the comparison numbers.
             routerForWarmup.warmUpActive()
         }
-        // Also wire the comparison runner into AICoreService so the DEBUG
-        // benchmark covers all installed models, not just Gemini Nano.
-        get<AICoreService>().comparisonRunner = get()
         mgr
     }
 

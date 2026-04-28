@@ -1,7 +1,6 @@
 package com.jaeckel.urlvault.android.ai
 
 import android.util.Log
-import com.jaeckel.urlvault.ai.ModelComparisonRunner
 import io.ktor.client.HttpClient
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
@@ -51,13 +50,6 @@ class AICoreService(httpClient: HttpClient) {
     private val initMutex = Mutex()
     private val _status = MutableStateFlow<AICoreStatus>(AICoreStatus.Unknown)
     val status: StateFlow<AICoreStatus> = _status.asStateFlow()
-
-    /**
-     * Optional. When set, `runBenchmarking()` additionally runs every ready
-     * provider in the registry (e.g. downloaded GGUFs) so the DEBUG logcat
-     * benchmark covers all installed local models, not just Gemini Nano.
-     */
-    var comparisonRunner: ModelComparisonRunner? = null
 
     /**
      * Obtains the generative model instance.
@@ -364,98 +356,6 @@ class AICoreService(httpClient: HttpClient) {
         val candidate = response.candidates.firstOrNull()
             ?: error("Empty response from AI model")
         return candidate.text.ifBlank { error("Empty response from AI model") }
-    }
-
-    /**
-     * Runs inference across all Gemini Nano permutations to compare performance and quality.
-     * Additionally, if a [comparisonRunner] is set, runs every other ready provider in
-     * the registry (downloaded GGUFs, etc.) so the DEBUG benchmark covers the full set
-     * of installed local models. Only executed in debug builds.
-     */
-    private suspend fun runBenchmarking(
-        prompt: String,
-        sourceUrl: String,
-        sourceTitle: String,
-        sourceUserDescription: String,
-    ) {
-        val stages = listOf(ModelReleaseStage.STABLE, ModelReleaseStage.PREVIEW)
-        val preferences = listOf(ModelPreference.FAST, ModelPreference.FULL)
-
-        Log.i(TAG, "--- Gemini Nano Benchmark Start ---")
-        for (stage in stages) {
-            for (pref in preferences) {
-                var model: GenerativeModel? = null
-                try {
-                    val config = generationConfig {
-                        modelConfig = modelConfig {
-                            releaseStage = stage
-                            preference = pref
-                        }
-                    }
-                    model = Generation.getClient(config)
-                    
-                    val statusValue = model.checkStatus()
-                    
-                    if (statusValue != FeatureStatus.AVAILABLE) {
-                        Log.i(TAG, "BENCHMARK | Stage=${stage.toStageString()} | Pref=${pref.toPrefString()} | Status=${statusValue.toStatusString()} | Skip inference")
-                        model.close()
-                        model = null
-                        continue
-                    }
-
-                    // Note: warmup() ensures the model is loaded into memory/NPU
-                    model.warmup() 
-
-                    val startTime = System.currentTimeMillis()
-                    val response = model.generateContent(
-                        generateContentRequest(TextPart(prompt)) {
-                            temperature = 0.0f
-                            topK = 1
-                            maxOutputTokens = 256
-                        }
-                    )
-                    val duration = System.currentTimeMillis() - startTime
-                    val resultText = response.candidates.firstOrNull()?.text?.trim()?.replace("\n", " ") ?: "EMPTY"
-                    
-                    Log.i(TAG, "BENCHMARK | Stage=${stage.toStageString()} | Pref=${pref.toPrefString()} | Status=${statusValue.toStatusString()} | Time=${duration}ms | Result=$resultText")
-                    
-                } catch (e: Exception) {
-                    val statusStr = try {
-                        // Re-check status if possible
-                        model?.checkStatus()?.toStatusString() ?: "UNKNOWN"
-                    } catch (_: Exception) {
-                        "ERROR"
-                    }
-                    Log.w(TAG, "BENCHMARK | Stage=${stage.toStageString()} | Pref=${pref.toPrefString()} | Status=$statusStr | Failed=${e.message}")
-                } finally {
-                    try {
-                        model?.close()
-                    } catch (_: Exception) {}
-                }
-            }
-        }
-        Log.i(TAG, "--- Gemini Nano Benchmark End ---")
-
-        comparisonRunner?.let { runner ->
-            try {
-                val results = runner.runAll(sourceUrl, sourceTitle, sourceUserDescription)
-                results.forEach { r ->
-                    if (r.providerId == "mlkit:gemini-nano-active") return@forEach
-                    val tagsStr = r.tags.joinToString(",").take(120)
-                    val descStr = r.description.replace("\n", " ").take(120)
-                    val titleStr = r.title.replace("\n", " ").take(80)
-                    Log.i(
-                        TAG,
-                        "BENCHMARK | Provider=${r.displayName} | Runtime=${r.runtime} | " +
-                            "TagsMs=${r.tagsMs} DescMs=${r.descriptionMs} TitleMs=${r.titleMs} | " +
-                            "Tags=[$tagsStr] | Desc=$descStr | Title=$titleStr" +
-                            (if (r.error != null) " | Error=${r.error}" else "")
-                    )
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Registry benchmark failed: ${e.message}")
-            }
-        }
     }
 
     private fun validateDescription(text: String): String {

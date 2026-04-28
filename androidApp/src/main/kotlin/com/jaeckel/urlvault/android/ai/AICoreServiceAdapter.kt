@@ -10,8 +10,8 @@ import com.jaeckel.urlvault.ai.ModelRuntime
  * registry, the user-visible comparison screen, and the bookmark AI router.
  *
  * The adapter wraps a single Gemini Nano variant — the one `AICoreService`
- * picked during `initialize()`. The DEBUG-only 4-variant benchmark continues
- * to live inside `AICoreService.runBenchmarking()`.
+ * picked during `initialize()`. Cross-runtime benchmarking lives in
+ * `ModelComparisonRunner`, driven from `ModelComparisonScreen`.
  */
 class AICoreServiceAdapter(
     private val service: AICoreService,
