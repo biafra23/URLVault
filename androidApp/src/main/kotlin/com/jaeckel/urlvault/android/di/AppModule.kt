@@ -8,6 +8,8 @@ import com.jaeckel.urlvault.android.ai.AICoreService
 import com.jaeckel.urlvault.android.ai.AICoreServiceAdapter
 import com.jaeckel.urlvault.android.ai.LeapNativeBridge
 import com.jaeckel.urlvault.android.ai.LeapSdkNativeBridge
+import com.jaeckel.urlvault.android.ai.LiteRtLmNativeBridge
+import com.jaeckel.urlvault.android.ai.LiteRtLmSdkBridge
 import com.jaeckel.urlvault.android.ai.LlamaCppNativeBridge
 import com.jaeckel.urlvault.android.ai.LlamatikNativeBridge
 import com.jaeckel.urlvault.android.ai.LocalModelPreferences
@@ -120,6 +122,10 @@ val appModule = module {
     // pattern if the SDK class fails to load on this device.
     single<LeapNativeBridge> { LeapSdkNativeBridge() }
 
+    // LiteRT-LM runtime — runs `.litertlm` bundles (Gemma 4 E2B, etc.) with
+    // NPU/GPU/CPU backend selection. Backed by `LiteRtLmModelProvider`.
+    single<LiteRtLmNativeBridge> { LiteRtLmSdkBridge(androidContext()) }
+
     // Cross-provider comparison helper (used by both DEBUG logcat benchmark
     // and the user-visible ModelComparisonScreen)
     single { ModelComparisonRunner(get()) }
@@ -132,6 +138,7 @@ val appModule = module {
             registry = get(),
             bridge = get(),
             leapBridge = get(),
+            liteRtLmBridge = get(),
             appScope = get(),
             authTokenProvider = { get<LocalModelPreferences>().loadHfToken() },
         )

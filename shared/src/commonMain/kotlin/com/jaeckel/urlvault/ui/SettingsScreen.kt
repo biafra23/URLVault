@@ -667,10 +667,7 @@ private fun ModelCatalogRow(
                         Button(onClick = onCancel) { Text("Cancel") }
                     }
                     else -> {
-                        Button(
-                            onClick = onDownload,
-                            enabled = entry.runtime != ModelRuntime.MEDIAPIPE,
-                        ) { Text("Download") }
+                        Button(onClick = onDownload) { Text("Download") }
                     }
                 }
             }

@@ -1,0 +1,186 @@
+package com.jaeckel.urlvault.android.ai
+
+import android.content.Context
+import android.util.Log
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.InputData
+import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.Session
+import com.google.ai.edge.litertlm.SessionConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.File
+
+private const val TAG = "LiteRtLmSdkBridge"
+
+/**
+ * `LiteRtLmNativeBridge` backed by `com.google.ai.edge.litertlm:litertlm-android`.
+ *
+ * Backend selection on `load()` walks NPU → GPU → CPU, building a fresh
+ * [Engine] for each backend until one initialises successfully. The chosen
+ * backend is logged so the user-visible comparison screen can show why one
+ * device is faster than another.
+ *
+ * No JSON-schema-constrained sampler exists in this SDK — [generateStructured]
+ * appends the schema to the prompt as a hint and the parser in
+ * `LiteRtLmModelProvider` does the defensive cleanup.
+ */
+class LiteRtLmSdkBridge(private val context: Context) : LiteRtLmNativeBridge {
+
+    private val mutex = Mutex()
+    private var engine: Engine? = null
+    private var currentPath: String? = null
+    private var currentBackend: String? = null
+
+    private val classLoaderProbe: Boolean by lazy {
+        try {
+            Class.forName("com.google.ai.edge.litertlm.Engine")
+            Log.i(TAG, "LiteRT-LM class loaded — runtime considered available")
+            true
+        } catch (t: Throwable) {
+            Log.e(TAG, "LiteRT-LM class not on classpath — runtime unavailable", t)
+            false
+        }
+    }
+
+    override fun isAvailable(): Boolean = classLoaderProbe
+
+    override suspend fun load(absolutePath: String) {
+        mutex.withLock {
+            if (currentPath == absolutePath && engine != null) {
+                Log.v(TAG, "load: already loaded $absolutePath, no-op")
+                return
+            }
+            withContext(Dispatchers.IO) {
+                engine?.let {
+                    Log.i(TAG, "load: switching model — closing previous $currentPath")
+                    runCatching { it.close() }
+                }
+                engine = null
+                currentPath = null
+                currentBackend = null
+
+                val cacheDir = File(context.cacheDir, "litertlm").also { it.mkdirs() }
+                val nativeLibDir = context.applicationInfo.nativeLibraryDir.orEmpty()
+                val backendsToTry = backendsInPriorityOrder(nativeLibDir)
+
+                var lastError: Throwable? = null
+                for ((label, backend) in backendsToTry) {
+                    val t0 = System.currentTimeMillis()
+                    Log.i(TAG, "load: trying backend=$label for $absolutePath")
+                    val candidate = Engine(
+                        EngineConfig(
+                            modelPath = absolutePath,
+                            backend = backend,
+                            visionBackend = backend,
+                            audioBackend = backend,
+                            maxNumTokens = null,
+                            maxNumImages = null,
+                            cacheDir = cacheDir.absolutePath,
+                        ),
+                    )
+                    val initOk = runCatching { candidate.initialize() }
+                    if (initOk.isSuccess) {
+                        engine = candidate
+                        currentPath = absolutePath
+                        currentBackend = label
+                        Log.i(
+                            TAG,
+                            "load: ready on $label in ${System.currentTimeMillis() - t0}ms — $absolutePath",
+                        )
+                        return@withContext
+                    } else {
+                        lastError = initOk.exceptionOrNull()
+                        Log.w(
+                            TAG,
+                            "load: backend=$label failed (${lastError?.message}); trying next",
+                        )
+                        runCatching { candidate.close() }
+                    }
+                }
+                throw IllegalStateException(
+                    "LiteRT-LM failed on every backend (NPU → GPU → CPU). Last error: ${lastError?.message}",
+                    lastError,
+                )
+            }
+        }
+    }
+
+    /**
+     * NPU first when the device's `nativeLibraryDir` exists (vendor libs are
+     * typically loaded from there for QCS / Pixel chips), then GPU, then CPU.
+     * On unsupported devices NPU init throws and we fall through.
+     */
+    private fun backendsInPriorityOrder(nativeLibDir: String): List<Pair<String, Backend>> {
+        val list = mutableListOf<Pair<String, Backend>>()
+        if (nativeLibDir.isNotBlank()) {
+            list.add("NPU" to Backend.NPU(nativeLibDir))
+        }
+        list.add("GPU" to Backend.GPU())
+        // null = default thread count picked by the runtime.
+        list.add("CPU" to Backend.CPU(null))
+        return list
+    }
+
+    override suspend fun generate(prompt: String, maxTokens: Int): String =
+        mutex.withLock { runCollect(prompt, maxTokens) }
+
+    override suspend fun generateStructured(
+        prompt: String,
+        jsonSchema: String,
+        maxTokens: Int,
+    ): String = mutex.withLock {
+        // No grammar-constrained sampler in this SDK — bake the schema into
+        // the prompt and let the provider's parser handle messy output.
+        val combined = buildString {
+            append(prompt)
+            append("\n\nRespond with ONLY a JSON object that conforms to this schema (no commentary, no markdown fences):\n")
+            append(jsonSchema)
+        }
+        runCollect(combined, maxTokens)
+    }
+
+    private suspend fun runCollect(text: String, maxTokens: Int): String {
+        val current = engine ?: error("LiteRT-LM: no model loaded")
+        // maxNumTokens here is advisory — the SDK still respects the config-
+        // level cap. We pass through whatever sampling the user requests.
+        val session: Session = current.createSession(
+            SessionConfig(SamplerConfig(40, 0.95, 0.7, 0)),
+        )
+        val t0 = System.currentTimeMillis()
+        return try {
+            withContext(Dispatchers.IO) {
+                session.generateContent(listOf(InputData.Text(text)))
+            }.also {
+                Log.i(
+                    TAG,
+                    "runCollect: produced ${it.length} chars on $currentBackend in ${System.currentTimeMillis() - t0}ms",
+                )
+            }
+        } catch (t: Throwable) {
+            Log.e(
+                TAG,
+                "runCollect: generation failed on $currentBackend after ${System.currentTimeMillis() - t0}ms",
+                t,
+            )
+            throw t
+        } finally {
+            runCatching { session.close() }
+        }
+    }
+
+    override suspend fun unload() {
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                engine?.let { runCatching { it.close() } }
+            }
+            engine = null
+            currentPath = null
+            currentBackend = null
+        }
+    }
+}

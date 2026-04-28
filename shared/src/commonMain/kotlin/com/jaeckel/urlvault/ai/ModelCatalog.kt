@@ -106,15 +106,18 @@ object ModelCatalog {
                 "as schema-validated JSON rather than free-form text.",
         ),
         ModelCatalogEntry(
-            id = "mediapipe:gemma-3-1b-it",
-            displayName = "Google Gemma 3 1B IT (Coming soon)",
+            id = "litertlm:gemma-4-e2b-it",
+            displayName = "Google Gemma 4 E2B IT (LiteRT-LM, NPU)",
             runtime = ModelRuntime.MEDIAPIPE,
-            hfRepo = "google/gemma-3-1b-it",
-            hfFile = "gemma-3-1b-it.task",
-            approxBytes = 700L * 1024 * 1024,
+            hfRepo = "litert-community/gemma-4-E2B-it-litert-lm",
+            hfFile = "gemma-4-E2B-it.litertlm",
+            approxBytes = 2466L * 1024 * 1024,
             license = "Gemma Terms of Use",
             builtIn = true,
-            notes = "MediaPipe runtime not yet wired up — enable in the next session.",
+            notes = "~2.4 GB. Runs on NPU when the device exposes vendor libs " +
+                "(Pixel Tensor / Qualcomm QNN), else GPU, else CPU — backend is " +
+                "picked at load time. No grammar-constrained sampler, so JSON " +
+                "comes from prompt instructions and a defensive parser.",
         ),
     )
 }

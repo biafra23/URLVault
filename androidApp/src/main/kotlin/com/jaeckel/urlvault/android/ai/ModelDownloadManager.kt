@@ -43,6 +43,7 @@ class ModelDownloadManager(
     private val registry: LocalModelRegistry,
     private val bridge: LlamaCppNativeBridge,
     private val leapBridge: LeapNativeBridge,
+    private val liteRtLmBridge: LiteRtLmNativeBridge,
     private val appScope: CoroutineScope,
     private val authTokenProvider: () -> String? = { null },
 ) {
@@ -66,7 +67,7 @@ class ModelDownloadManager(
      */
     fun rehydrateFromDisk(catalog: List<ModelCatalogEntry>) {
         catalog.forEach { entry ->
-            if (entry.runtime != ModelRuntime.LLAMA_CPP && entry.runtime != ModelRuntime.LEAP) return@forEach
+            if (entry.runtime != ModelRuntime.LLAMA_CPP && entry.runtime != ModelRuntime.LEAP && entry.runtime != ModelRuntime.MEDIAPIPE) return@forEach
             val file = fileFor(entry)
             if (file.exists() && file.length() > 0) {
                 _states.update { it + (entry.id to ModelDownloadState.Ready(file.absolutePath, file.length())) }
@@ -80,7 +81,7 @@ class ModelDownloadManager(
             Log.d(TAG, "Download already in progress for ${entry.id}")
             return
         }
-        if (entry.runtime != ModelRuntime.LLAMA_CPP && entry.runtime != ModelRuntime.LEAP) {
+        if (entry.runtime != ModelRuntime.LLAMA_CPP && entry.runtime != ModelRuntime.LEAP && entry.runtime != ModelRuntime.MEDIAPIPE) {
             _states.update {
                 it + (entry.id to ModelDownloadState.Failed("Runtime ${entry.runtime} not yet supported"))
             }
@@ -243,6 +244,13 @@ class ModelDownloadManager(
                 displayName = entry.displayName,
                 modelFile = file.absolutePath,
                 bridge = leapBridge,
+                httpClient = sharedHttp,
+            )
+            ModelRuntime.MEDIAPIPE -> LiteRtLmModelProvider(
+                id = entry.id,
+                displayName = entry.displayName,
+                modelFile = file.absolutePath,
+                bridge = liteRtLmBridge,
                 httpClient = sharedHttp,
             )
             else -> {

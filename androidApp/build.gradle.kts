@@ -216,6 +216,10 @@ dependencies {
     implementation(libs.leap.sdk)
     implementation(libs.leap.model.downloader)
 
+    // Google LiteRT-LM — runs `.litertlm` bundles via NPU/GPU/CPU backends
+    // (used by LiteRtLmModelProvider for the Gemma 4 E2B entry).
+    implementation(libs.litertlm.android)
+
     // Llamatik (llama.cpp via JNI; backs LlamatikNativeBridge).
     // Local build from `ferranpons/Llamatik` main (closest tag: v1.1.1) with
     // two patches on top — see filename suffix `+localfix`:
