@@ -162,8 +162,34 @@ class ModelDownloadManager(
      */
     private suspend fun downloadStreaming(entry: ModelCatalogEntry, target: File) = withContext(Dispatchers.IO) {
         coroutineScope {
-            val existing = if (target.exists()) target.length() else 0L
+            var existing = if (target.exists()) target.length() else 0L
             val token = authTokenProvider()
+
+            // If a partial is already on disk, ask the server for the total
+            // size first. Two pre-resume recovery paths:
+            //   - existing == total: file is actually complete (typical for
+            //     downloads that finished before the .complete marker was
+            //     introduced — rehydrate sees no marker and bumps it to
+            //     Downloading, then a Range: bytes=<total>- request 416s).
+            //     Skip the HTTP fetch entirely; the caller will write the
+            //     marker and register the provider.
+            //   - existing > total: stale or corrupt partial. Truncate and
+            //     fall through to a fresh download.
+            if (existing > 0L) {
+                val total = runCatching { discoverTotalBytes(entry.downloadUrl(), token) }
+                    .getOrDefault(-1L)
+                if (total > 0L && existing == total) {
+                    Log.i(TAG, "${entry.id} already complete on disk ($existing bytes) — skipping HTTP fetch")
+                    return@coroutineScope
+                }
+                if (total > 0L && existing > total) {
+                    Log.w(TAG, "${entry.id} partial > server total ($existing > $total) — truncating")
+                    // RandomAccessFile.setLength is the cleanest way to
+                    // shrink a file in-place without losing the inode.
+                    RandomAccessFile(target, "rw").use { it.setLength(0L) }
+                    existing = 0L
+                }
+            }
 
             // HuggingFace serves a 302 to a CDN; we follow it manually so we keep
             // control of the Range header on the redirected request.
@@ -213,6 +239,57 @@ class ModelDownloadManager(
         val contentLength: Long,
         val isPartial: Boolean,
     )
+
+    /**
+     * Probe the server for the file's total size without downloading the
+     * whole thing. Sends `Range: bytes=0-0` (a 1-byte slice) so the response
+     * carries a `Content-Range: bytes 0-0/<total>` header we can parse.
+     * Follows the same manual-redirect chain as openWithRedirects to keep
+     * the Authorization header attached on CDN redirects. Returns -1 if the
+     * server doesn't report a total (e.g. on a non-Range-capable origin).
+     */
+    private fun discoverTotalBytes(urlString: String, token: String?, maxHops: Int = 5): Long {
+        var url = URL(urlString)
+        var hops = 0
+        while (true) {
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 30_000
+                readTimeout = 60_000
+                instanceFollowRedirects = false
+                setRequestProperty("User-Agent", "URLVault/1.0")
+                setRequestProperty("Range", "bytes=0-0")
+                if (!token.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $token")
+            }
+            try {
+                val code = conn.responseCode
+                when (code) {
+                    HttpURLConnection.HTTP_PARTIAL -> {
+                        // "bytes 0-0/123456789"
+                        val cr = conn.getHeaderField("Content-Range") ?: return -1L
+                        return cr.substringAfterLast('/').toLongOrNull() ?: -1L
+                    }
+                    in 200..299 -> {
+                        // Server ignored Range and returned the whole file —
+                        // Content-Length is the total.
+                        return conn.contentLengthLong.takeIf { it > 0 } ?: -1L
+                    }
+                    HttpURLConnection.HTTP_MOVED_PERM,
+                    HttpURLConnection.HTTP_MOVED_TEMP,
+                    HttpURLConnection.HTTP_SEE_OTHER,
+                    307, 308 -> {
+                        val location = conn.getHeaderField("Location") ?: return -1L
+                        url = URL(url, location)
+                        hops++
+                        if (hops > maxHops) return -1L
+                    }
+                    else -> return -1L
+                }
+            } finally {
+                conn.disconnect()
+            }
+        }
+    }
 
     /**
      * Follow up to 5 redirects manually so we re-apply the Authorization /
