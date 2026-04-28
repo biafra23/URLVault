@@ -5,11 +5,14 @@ import com.jaeckel.urlvault.Logger
 /**
  * macOS-only Touch ID-gated wrapper around the legacy file-based Keychain.
  *
- * Storage: shells out to `security(1)` to add/find/delete generic password
- * items. The Keychain item lives in `~/Library/Keychains/login.keychain-db`,
- * encrypted at rest by the OS using the user's login password. No entry on
- * disk is in a "predictable" form — the file is meaningless without the
- * user's macOS login session.
+ * Storage: uses the legacy file-based Keychain. Saves call
+ * `SecKeychainAddGenericPassword` via the JXA ObjC bridge so the password
+ * is piped over stdin and never appears in `argv` (where any user could see
+ * it via `ps`); finds and deletes shell out to `security(1)` since they
+ * don't take a secret argument. The Keychain item lives in
+ * `~/Library/Keychains/login.keychain-db`, encrypted at rest by the OS
+ * using the user's login password. No entry on disk is in a "predictable"
+ * form — the file is meaningless without the user's macOS login session.
  *
  * Biometric gate: before each read, fires `LocalAuthentication.framework`'s
  * `LAPolicyDeviceOwnerAuthenticationWithBiometrics` via JavaScript-for-
@@ -42,19 +45,90 @@ internal class MacBiometricKeychain {
      * Stores [password] in the user's login keychain under (service, account).
      * Replaces any existing item. No biometric prompt on save (typical
      * keychain UX). Returns true on success.
+     *
+     * Avoids the obvious `security add-generic-password -w <password>` because
+     * that puts the master password in `argv` and any local user can read it
+     * via `ps`. Instead we call `SecKeychainAddGenericPassword` from a JXA
+     * script via the ObjC bridge; the password is piped over stdin and never
+     * touches a command-line argument or the environment block. Service and
+     * account are passed via env vars (`ps -E` is restricted to the same UID
+     * by SIP and they aren't secrets — service is a hardcoded constant and
+     * the account name is already stored in cleartext as a Keychain item
+     * attribute on disk).
      */
     fun savePassword(service: String, account: String, password: String): Boolean {
         if (!isSupported()) return false
-        val out = runCommand(
-            "security", "add-generic-password",
-            "-s", service,
-            "-a", account,
-            "-w", password,
-            "-U",                      // update if exists
-            "-T", "",                  // restrict to /usr/bin/security itself; no other-app access
-        )
-        if (out == null) {
-            Logger.e(TAG, "security add-generic-password failed for service=$service account=$account")
+        val script = """
+            ObjC.import("Security");
+            ObjC.import("Foundation");
+
+            function readStdinUtf8() {
+                var handle = $.NSFileHandle.fileHandleWithStandardInput;
+                var data = handle.readDataToEndOfFile;
+                var s = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
+                return ObjC.unwrap(s);
+            }
+
+            // Returns { bytes: const char*, len: UInt32 } sized for the UTF-8
+            // form of [str]. SecKeychainAddGenericPassword takes raw byte
+            // buffers + lengths, so JS .length (UTF-16 code units) is wrong
+            // for any non-ASCII input.
+            function utf8Buf(str) {
+                var nsStr = $.NSString.alloc.initWithUTF8String(str);
+                var len = nsStr.lengthOfBytesUsingEncoding($.NSUTF8StringEncoding);
+                return { bytes: nsStr.UTF8String, len: len };
+            }
+
+            (function () {
+                var env = $.NSProcessInfo.processInfo.environment;
+                var service = ObjC.unwrap(env.objectForKey("URLVAULT_KC_SERVICE"));
+                var account = ObjC.unwrap(env.objectForKey("URLVAULT_KC_ACCOUNT"));
+                var password = readStdinUtf8();
+
+                var sv = utf8Buf(service);
+                var ac = utf8Buf(account);
+                var pw = utf8Buf(password);
+
+                var itemRef = Ref();
+                var status = $.SecKeychainAddGenericPassword(
+                    $(),                    // null = default keychain
+                    sv.len, sv.bytes,
+                    ac.len, ac.bytes,
+                    pw.len, pw.bytes,
+                    itemRef
+                );
+                // -25299 = errSecDuplicateItem. Mirror the `-U` flag from the
+                // legacy CLI: find the existing item and overwrite its data.
+                if (status === -25299) {
+                    var foundRef = Ref();
+                    var findStatus = $.SecKeychainFindGenericPassword(
+                        $(),
+                        sv.len, sv.bytes,
+                        ac.len, ac.bytes,
+                        null, null,
+                        foundRef
+                    );
+                    if (findStatus !== 0) return "find-failed:" + findStatus;
+                    status = $.SecKeychainItemModifyAttributesAndData(
+                        foundRef[0], null, pw.len, pw.bytes
+                    );
+                    return status === 0 ? "ok" : "modify-failed:" + status;
+                }
+                return status === 0 ? "ok" : "add-failed:" + status;
+            })();
+        """.trimIndent()
+
+        val result = runOsascriptWithStdin(
+            script = script,
+            stdin = password,
+            env = mapOf(
+                "URLVAULT_KC_SERVICE" to service,
+                "URLVAULT_KC_ACCOUNT" to account,
+            ),
+        )?.trim()
+
+        if (result != "ok") {
+            Logger.e(TAG, "savePassword failed for service=$service account=$account: $result")
             return false
         }
         return true
@@ -138,6 +212,38 @@ internal class MacBiometricKeychain {
                 Logger.e(TAG, "Unexpected biometric result: $result")
                 false
             }
+        }
+    }
+
+    /**
+     * Runs `osascript -l JavaScript` with [script] piped as the program (via
+     * `-e -`) and [stdin] piped on standard input. Used by [savePassword] to
+     * keep secrets out of `argv`. [env] is merged into the child process
+     * environment.
+     */
+    private fun runOsascriptWithStdin(
+        script: String,
+        stdin: String,
+        env: Map<String, String> = emptyMap(),
+    ): String? {
+        return try {
+            val builder = ProcessBuilder("osascript", "-l", "JavaScript", "-e", script)
+                .redirectErrorStream(false)
+            builder.environment().putAll(env)
+            val process = builder.start()
+            process.outputStream.use { it.write(stdin.toByteArray(Charsets.UTF_8)) }
+            val stdout = process.inputStream.bufferedReader().readText()
+            val stderr = process.errorStream.bufferedReader().readText()
+            val exitCode = process.waitFor()
+            if (exitCode == 0) {
+                stdout
+            } else {
+                Logger.v(TAG, "osascript script failed code=$exitCode: $stderr")
+                null
+            }
+        } catch (e: Exception) {
+            Logger.e(TAG, "runOsascriptWithStdin threw: ${e.message}", e)
+            null
         }
     }
 
