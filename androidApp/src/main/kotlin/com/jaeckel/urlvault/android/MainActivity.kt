@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
                 var aiCoreEnabled by remember { mutableStateOf(bitwardenPrefs.loadAiCoreEnabled()) }
                 val aiCoreStatus by aiCoreService.status.collectAsState()
                 val downloadStates by modelDownloadManager.states.collectAsState()
+                val warmingIds by localModelRouter.warmingIds.collectAsState()
                 var customEntries by remember { mutableStateOf(localModelPrefs.loadCustomEntries()) }
                 var activeIds by remember { mutableStateOf(localModelPrefs.loadActiveIds()) }
                 // Settings reads two heavy values from EncryptedSharedPreferences:
@@ -209,6 +210,7 @@ class MainActivity : ComponentActivity() {
                             localModelCatalog = catalog,
                             localModelStates = downloadStates,
                             activeModelIds = activeIds,
+                            warmingModelIds = warmingIds,
                             onDownloadModel = { entry -> modelDownloadManager.download(entry) },
                             onCancelModelDownload = { entry -> modelDownloadManager.cancel(entry) },
                             onDeleteModel = { entry ->

@@ -72,6 +72,7 @@ fun SettingsScreen(
     localModelCatalog: List<ModelCatalogEntry> = emptyList(),
     localModelStates: Map<String, ModelDownloadState> = emptyMap(),
     activeModelIds: Set<String> = emptySet(),
+    warmingModelIds: Set<String> = emptySet(),
     onDownloadModel: (ModelCatalogEntry) -> Unit = {},
     onCancelModelDownload: (ModelCatalogEntry) -> Unit = {},
     onDeleteModel: (ModelCatalogEntry) -> Unit = {},
@@ -428,6 +429,7 @@ fun SettingsScreen(
                             entry = entry,
                             state = state,
                             isActive = entry.id in activeModelIds,
+                            isWarming = entry.id in warmingModelIds,
                             onDownload = { onDownloadModel(entry) },
                             onCancel = { onCancelModelDownload(entry) },
                             onDelete = { onDeleteModel(entry) },
@@ -595,6 +597,7 @@ private fun ModelCatalogRow(
     entry: ModelCatalogEntry,
     state: ModelDownloadState,
     isActive: Boolean,
+    isWarming: Boolean,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
@@ -638,16 +641,28 @@ private fun ModelCatalogRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = describeState(state),
-                style = MaterialTheme.typography.bodySmall,
-                color = when (state) {
-                    is ModelDownloadState.Failed -> MaterialTheme.colorScheme.error
-                    is ModelDownloadState.Ready -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
+            Row(
                 modifier = Modifier.weight(1f),
-            )
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isWarming) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.size(8.dp))
+                }
+                Text(
+                    text = if (isWarming) "Loading model into memory…" else describeState(state),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when {
+                        isWarming -> MaterialTheme.colorScheme.primary
+                        state is ModelDownloadState.Failed -> MaterialTheme.colorScheme.error
+                        state is ModelDownloadState.Ready -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val isInProgress = state is ModelDownloadState.Downloading ||
                     state is ModelDownloadState.Queued ||

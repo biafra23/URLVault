@@ -4,8 +4,12 @@ import android.util.Log
 import com.jaeckel.urlvault.ai.LocalModelProvider
 import com.jaeckel.urlvault.ai.LocalModelRegistry
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 private const val TAG = "LocalModelRouter"
 
@@ -51,6 +55,15 @@ class LocalModelRouter(
 
     private val _events = MutableSharedFlow<RouteEvent>(extraBufferCapacity = 16)
     val events: SharedFlow<RouteEvent> = _events.asSharedFlow()
+
+    /**
+     * Set of provider IDs whose weights are currently being paged into memory
+     * via [warmUpActive]. The Settings UI observes this to render a per-row
+     * "Warming up…" indicator so multi-second LiteRT-LM / LeapSDK loads aren't
+     * silent.
+     */
+    private val _warmingIds = MutableStateFlow<Set<String>>(emptySet())
+    val warmingIds: StateFlow<Set<String>> = _warmingIds.asStateFlow()
 
     private data class PickResult(
         val provider: LocalModelProvider?,
@@ -144,16 +157,21 @@ class LocalModelRouter(
             .forEach { provider ->
                 val t0 = System.currentTimeMillis()
                 Log.i(TAG, "warmUpActive: preloading ${provider.id}")
-                runCatching { provider.preload() }
-                    .onSuccess {
-                        Log.i(
-                            TAG,
-                            "warmUpActive: ${provider.id} ready in ${System.currentTimeMillis() - t0}ms",
-                        )
-                    }
-                    .onFailure { e ->
-                        Log.w(TAG, "warmUpActive: preload failed for ${provider.id}: ${e.message}", e)
-                    }
+                _warmingIds.update { it + provider.id }
+                try {
+                    runCatching { provider.preload() }
+                        .onSuccess {
+                            Log.i(
+                                TAG,
+                                "warmUpActive: ${provider.id} ready in ${System.currentTimeMillis() - t0}ms",
+                            )
+                        }
+                        .onFailure { e ->
+                            Log.w(TAG, "warmUpActive: preload failed for ${provider.id}: ${e.message}", e)
+                        }
+                } finally {
+                    _warmingIds.update { it - provider.id }
+                }
             }
     }
 
