@@ -79,10 +79,10 @@ class AutoTagService(private val httpClient: HttpClient) {
 
             // Extract <meta name="keywords" content="...">
             val keywordsTags = extractMetaContent(trimmedHtml, "keywords")?.let { keywords ->
-                keywords.split(Regex("[,;]+")).map { 
+                keywords.split(Regex("[,;]+")).map {
                     it.trim()
                         .lowercase()
-                        .replace(Regex("[^a-z0-9\\s-]"), "")
+                        .replace(Regex("[^a-z0-9äöüß\\s-]"), "")
                         .trim()
                 }
                 .filter { it.isNotBlank() && it.length in 2..30 }
@@ -175,7 +175,7 @@ class AutoTagService(private val httpClient: HttpClient) {
             Regex("<h([1-3])[^>]*>([\\s\\S]*?)</h\\1>", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("<[^>]+>")
         private val HTML_ENTITY_REGEX = Regex("&[a-z]+;")
-        private val WORD_SPLIT_REGEX = Regex("[^a-z0-9]+")
+        private val WORD_SPLIT_REGEX = Regex("[^a-z0-9äöüß]+")
 
         private fun stripHtmlTags(text: String): String =
             text.replace(HTML_TAG_REGEX, " ").replace(HTML_ENTITY_REGEX, " ")
