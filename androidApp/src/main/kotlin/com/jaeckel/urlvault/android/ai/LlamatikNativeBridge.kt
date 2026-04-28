@@ -142,7 +142,12 @@ class LlamatikNativeBridge : LlamaCppNativeBridge {
     }
 
     private fun applyDefaultParams(maxTokens: Int) {
-        Log.i(TAG, "applyDefaultParams: maxTokens=$maxTokens contextLength=2048 temp=0.7")
+        // Half the cores leaves headroom for the UI/system; clamping to >=1
+        // covers exotic single-core targets. On a 4-big/4-little phone this
+        // gives 4, matching the previous hardcoded value; on an 8-core
+        // chiplet it scales up to 4 instead of starving big cores.
+        val threads = maxOf(1, Runtime.getRuntime().availableProcessors() / 2)
+        Log.i(TAG, "applyDefaultParams: maxTokens=$maxTokens contextLength=2048 temp=0.7 threads=$threads")
         LlamaBridge.updateGenerateParams(
             temperature = 0.7f,
             maxTokens = maxTokens,
@@ -150,7 +155,7 @@ class LlamatikNativeBridge : LlamaCppNativeBridge {
             topK = 40,
             repeatPenalty = 1.1f,
             contextLength = 2048,
-            numThreads = 4,
+            numThreads = threads,
             useMmap = true,
             flashAttention = false,
             batchSize = 512,
