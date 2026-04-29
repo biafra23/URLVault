@@ -106,12 +106,20 @@ class LiteRtLmSdkBridge(
                 for ((label, backend) in backendsToTry) {
                     val t0 = System.currentTimeMillis()
                     Log.i(TAG, "load: trying backend=$label for $absolutePath")
+                    // visionBackend / audioBackend left null: every entry in
+                    // ModelCatalog is text-only. Setting them to `backend`
+                    // tells the engine to enable those modalities, and
+                    // initialize() then fails with `NOT_FOUND:
+                    // TF_LITE_VISION_ENCODER not found in the model.` for
+                    // text-only bundles (FunctionGemma 270M, Gemma 3 270M,
+                    // Qwen3 0.6B, etc.). When a true multi-modal Gemma 4 E2B
+                    // bundle is added later, switch this on per-entry.
                     val candidate = Engine(
                         EngineConfig(
                             modelPath = absolutePath,
                             backend = backend,
-                            visionBackend = backend,
-                            audioBackend = backend,
+                            visionBackend = null,
+                            audioBackend = null,
                             maxNumTokens = null,
                             maxNumImages = null,
                             cacheDir = cacheDir.absolutePath,
