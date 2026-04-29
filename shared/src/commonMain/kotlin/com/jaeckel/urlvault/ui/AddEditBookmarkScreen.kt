@@ -96,8 +96,15 @@ fun AddEditBookmarkScreen(
 
     val TAG = "AddEditBookmarkScreen"
 
-    // Track which URL we've already triggered AI for, to prevent re-triggering
+    // Track which URL we've already triggered AI for, to prevent re-triggering.
+    // The mode component matters because the share-intent LaunchedEffect
+    // re-keys on `aiCoreEnabled`: when the AI master toggle flips on after
+    // a startup race, we *want* to re-trigger (legacy → AI), but only that
+    // once. Without the mode check, a `force = true` would re-fire even on
+    // unrelated recompositions, producing duplicate description / tags
+    // generations (and two debug provenance tags in the saved bookmark).
     var aiTriggeredForUrl by remember { mutableStateOf<String?>(null) }
+    var aiTriggeredMode by remember { mutableStateOf<String?>(null) }
 
     // Helper to normalize and validate URL for AI triggering
     fun normalizeUrlForAi(rawUrl: String): String? {
@@ -112,12 +119,18 @@ fun AddEditBookmarkScreen(
 
     // Helper to trigger AI/autotag for a given URL
     fun triggerAiForUrl(targetUrl: String, force: Boolean = false) {
-        Logger.d(TAG, "triggerAiForUrl($targetUrl, force=$force)")
-        if (!force && aiTriggeredForUrl == targetUrl) {
-            Logger.d(TAG, "Already triggered for $targetUrl")
+        val desiredMode = if (aiCoreEnabled) "ai" else "legacy"
+        Logger.d(TAG, "triggerAiForUrl($targetUrl, force=$force, mode=$desiredMode)")
+        // Dedup on (URL, mode). Same URL + same mode is a no-op so unrelated
+        // recompositions don't re-fire the AI flow. Same URL + different mode
+        // (legacy → AI when the master toggle flips on after the startup
+        // race) IS a legitimate retrigger and falls through.
+        if (!force && aiTriggeredForUrl == targetUrl && aiTriggeredMode == desiredMode) {
+            Logger.d(TAG, "Already triggered for $targetUrl in $desiredMode mode")
             return
         }
         aiTriggeredForUrl = targetUrl
+        aiTriggeredMode = desiredMode
 
         // If AI is available and enabled, use it for title/desc/tags
         if (aiCoreEnabled) {
@@ -275,19 +288,21 @@ fun AddEditBookmarkScreen(
     }
 
     // Auto-trigger for prefilled URLs (share intent). Keyed on
-    // `aiCoreEnabled` as well as `prefilledUrl` so a startup race —
+    // `aiCoreEnabled` as well as `prefilledUrl` so the startup race —
     // share intent fires before `anyProviderReady`'s async readiness
     // probe has finished, so `aiCoreEnabled` is briefly false and the
     // first trigger ends up on the legacy branch — gets corrected once
-    // AI flips on. `force = true` so the re-trigger is not deduped by
-    // `aiTriggeredForUrl`. The legacy LaunchedEffects' `if (!aiCoreEnabled)`
-    // guards already prevent stale legacy results from clobbering the AI
-    // values when this flip happens.
+    // AI flips on. `triggerAiForUrl`'s mode-aware dedup handles both
+    // cases cleanly: legacy → AI is a real mode change so it re-fires;
+    // a stable-true aiCoreEnabled across recompositions is the same
+    // mode and is deduped. The legacy result-handling LaunchedEffects'
+    // `if (!aiCoreEnabled)` guards already prevent stale legacy results
+    // from clobbering the AI values when this flip happens.
     LaunchedEffect(prefilledUrl, aiCoreEnabled) {
         if (!isEditMode && prefilledUrl != null) {
             val targetUrl = normalizeUrlForAi(prefilledUrl)
             if (targetUrl != null) {
-                triggerAiForUrl(targetUrl, force = true)
+                triggerAiForUrl(targetUrl)
             }
         }
     }
