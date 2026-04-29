@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jaeckel.urlvault.ai.ModelComparisonRunner
+import com.jaeckel.urlvault.ai.ModelRuntime
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -212,7 +213,7 @@ private fun ProviderResultCard(result: ModelComparisonRunner.ProviderResult) {
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = result.runtime.name,
+                    text = runtimeLabel(result.runtime),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -269,4 +270,17 @@ private fun ResultLine(label: String, value: String, ms: Long) {
             style = MaterialTheme.typography.bodySmall,
         )
     }
+}
+
+/**
+ * Human-friendly label for a runtime. The enum name `MEDIAPIPE` is a
+ * historical leftover from when the LiteRT-LM bundle was loaded via
+ * MediaPipe-LLM; the actual runtime today is LiteRT-LM, so render it that
+ * way in the UI rather than leaking the enum constant.
+ */
+private fun runtimeLabel(runtime: ModelRuntime): String = when (runtime) {
+    ModelRuntime.ML_KIT -> "AICore"
+    ModelRuntime.LLAMA_CPP -> "llama.cpp"
+    ModelRuntime.LEAP -> "Leap"
+    ModelRuntime.MEDIAPIPE -> "LiteRT-LM"
 }
