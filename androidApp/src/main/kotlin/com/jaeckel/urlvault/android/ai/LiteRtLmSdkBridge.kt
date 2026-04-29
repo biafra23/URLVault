@@ -30,24 +30,18 @@ fun interface LiteRtLmBackendStrategy {
 
 /**
  * NPU first when the device's `nativeLibraryDir` is non-blank (vendor libs
- * are loaded from there for QCS / Pixel chips), then **CPU**, then GPU.
+ * are loaded from there for QCS / Pixel chips), then GPU, then CPU.
  *
- * GPU is intentionally deprioritised below CPU. The LiteRT-LM SDK
- * auto-selects the Top-K sampler based on engine backend: GPU engine
- * pulls in the WebGPU / OpenCL sampler chain, which on Pixel Tensor (7a /
- * 8 / 9) ends with `Can not find OpenCL library on this device` — the
- * fallback is statically-linked OpenCL too. There is no public API knob
- * to use the CPU sampler with a GPU engine. Using `Backend.CPU` for the
- * engine forces the CPU sampler and side-steps the issue entirely.
- *
- * Cost: on devices where GPU sampling DOES work (older Snapdragon with
- * full OpenCL drivers), we'd miss the GPU speedup. Acceptable, given
- * "always works on CPU" beats "fast on some devices, broken on Tensor".
- *
- * The runtime self-heal in [LiteRtLmSdkBridge.runCollect] still catches
- * the OpenCL error if it ever fires (e.g. someone explicitly forces a GPU
- * strategy) and blocklists the broken backend so subsequent calls try
- * the next candidate.
+ * GPU sometimes works (newer Tensor / Snapdragon with proper OpenCL or
+ * WebGPU drivers — e.g. Pixel 10 Pro Fold) and sometimes doesn't (Pixel
+ * 7a / Tensor G2 throws `Can not find OpenCL library on this device` once
+ * generation starts, because the SDK auto-selects the GPU sampler from
+ * the engine backend and there is no public knob to override). The
+ * runtime self-heal in [LiteRtLmSdkBridge.runCollect] catches that
+ * failure, blocklists the broken backend for the rest of the session,
+ * and lets the *next* call reload on the remaining candidates (typically
+ * CPU). The cost is one failed first call on devices where GPU breaks;
+ * acceptable in exchange for keeping GPU acceleration where it works.
  */
 object DefaultBackendStrategy : LiteRtLmBackendStrategy {
     override fun candidates(nativeLibDir: String): List<Pair<String, Backend>> {
@@ -55,9 +49,9 @@ object DefaultBackendStrategy : LiteRtLmBackendStrategy {
         if (nativeLibDir.isNotBlank()) {
             list.add("NPU" to Backend.NPU(nativeLibDir))
         }
+        list.add("GPU" to Backend.GPU())
         // null = default thread count picked by the runtime.
         list.add("CPU" to Backend.CPU(null))
-        list.add("GPU" to Backend.GPU())
         return list
     }
 }
@@ -107,6 +101,8 @@ class LiteRtLmSdkBridge(
     }
 
     override fun isAvailable(): Boolean = classLoaderProbe
+
+    override fun currentBackendLabel(): String? = currentBackend
 
     override suspend fun load(absolutePath: String) {
         mutex.withLock {

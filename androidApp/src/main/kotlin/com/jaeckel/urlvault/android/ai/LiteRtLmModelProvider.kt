@@ -40,6 +40,15 @@ class LiteRtLmModelProvider(
 
     override suspend fun isReady(): Boolean = bridge.isAvailable()
 
+    /**
+     * Backend the SDK ended up loading on (`"NPU"` / `"GPU"` / `"CPU"`),
+     * or null if no model is loaded yet. Read by `LocalModelRouter` to
+     * enrich the debug provenance tag — the saved bookmark then carries
+     * `liteRt[GPU]:gemma-3-1b-it-int4:2.34s` so it's obvious at a glance
+     * whether NPU/GPU acceleration was actually in play.
+     */
+    fun currentBackendLabel(): String? = bridge.currentBackendLabel()
+
     override suspend fun preload() {
         // Same mutex as the generate path so an inference call can't race a
         // warm-up into the LiteRT-LM Engine constructor.

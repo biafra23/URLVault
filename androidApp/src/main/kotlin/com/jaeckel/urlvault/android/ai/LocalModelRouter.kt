@@ -212,6 +212,15 @@ class LocalModelRouter(
             ModelRuntime.LEAP -> "leap"
             ModelRuntime.MEDIAPIPE -> "liteRt"
         }
+        // For LiteRT-LM, append the backend label the SDK actually picked
+        // (NPU/GPU/CPU) so the saved bookmark answers "did acceleration
+        // engage?" without having to grep logcat. The other runtimes don't
+        // expose a comparable concept (AICore is system-managed, llama.cpp
+        // and Leap are CPU-only here), so the suffix only fires for LiteRT.
+        val backendSuffix = (provider as? LiteRtLmModelProvider)
+            ?.currentBackendLabel()
+            ?.let { "[$it]" }
+            .orEmpty()
         // provider.id is `<runtime-prefix>:<model-id>` (e.g.
         // `leap:lfm2-1.2b-extract`); strip the prefix so we can substitute
         // the shorter SDK name without duplicating the runtime label.
@@ -226,7 +235,7 @@ class LocalModelRouter(
             val padded = if (hundredths < 10) "0$hundredths" else "$hundredths"
             "$whole.${padded}s"
         }
-        return "$sdk:$model:$duration"
+        return "$sdk$backendSuffix:$model:$duration"
     }
 
     suspend fun generateDescription(url: String, title: String): Result<String> {
