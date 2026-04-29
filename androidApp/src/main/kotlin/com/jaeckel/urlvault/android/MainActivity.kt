@@ -3,6 +3,7 @@ package com.jaeckel.urlvault.android
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
@@ -178,6 +179,21 @@ class MainActivity : ComponentActivity() {
                 ) {
                     value = withContext(Dispatchers.Default) {
                         localModelRouter.hasReadyProvider()
+                    }
+                }
+
+                // Without an explicit BackHandler, the system back gesture
+                // bypasses our in-memory `currentScreen` state and finishes
+                // the Activity — i.e. tapping back from Settings exits the
+                // app instead of returning to the bookmark list. Mirror the
+                // in-screen back arrows: Comparison → Settings; Settings and
+                // AddEdit → List. List is the root, so the handler is
+                // disabled there and the OS default (finish) applies.
+                BackHandler(enabled = currentScreen !is Screen.List) {
+                    currentScreen = when (currentScreen) {
+                        is Screen.Comparison -> Screen.Settings
+                        is Screen.Settings, is Screen.AddEdit -> Screen.List
+                        is Screen.List -> Screen.List // unreachable
                     }
                 }
 
