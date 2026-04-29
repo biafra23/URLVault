@@ -274,12 +274,20 @@ fun AddEditBookmarkScreen(
         }
     }
 
-    // Auto-trigger once for prefilled URLs (share intent).
-    LaunchedEffect(prefilledUrl) {
+    // Auto-trigger for prefilled URLs (share intent). Keyed on
+    // `aiCoreEnabled` as well as `prefilledUrl` so a startup race —
+    // share intent fires before `anyProviderReady`'s async readiness
+    // probe has finished, so `aiCoreEnabled` is briefly false and the
+    // first trigger ends up on the legacy branch — gets corrected once
+    // AI flips on. `force = true` so the re-trigger is not deduped by
+    // `aiTriggeredForUrl`. The legacy LaunchedEffects' `if (!aiCoreEnabled)`
+    // guards already prevent stale legacy results from clobbering the AI
+    // values when this flip happens.
+    LaunchedEffect(prefilledUrl, aiCoreEnabled) {
         if (!isEditMode && prefilledUrl != null) {
             val targetUrl = normalizeUrlForAi(prefilledUrl)
             if (targetUrl != null) {
-                triggerAiForUrl(targetUrl)
+                triggerAiForUrl(targetUrl, force = true)
             }
         }
     }
