@@ -55,11 +55,18 @@ sealed class AiActivityState {
  * Slim auto-hiding strip rendered at the bottom of the app. Designed as the
  * non-obstructive replacement for the debug Toast spam: a single line that
  * slides up while AI work is in flight, then briefly shows the timing, then
- * slides away. Place it at the bottom of a Box that wraps your screen
- * content; it will draw above everything else when [state] is not Hidden.
+ * slides away.
  *
- * Auto-hide of [Completed] / [NoProvider] is the caller's responsibility —
- * use a `LaunchedEffect(state)` with a `delay` and reset to [Hidden].
+ * Add it as the **last child of your screen's Column** (with the screen
+ * content above it given `Modifier.weight(1f)`) so it claims real layout
+ * space when visible and pushes content up. Putting it in an overlaying
+ * `Box` will reintroduce the obscuring behaviour the original Toast had —
+ * the whole point of this strip is that buttons stay reachable while it's
+ * showing.
+ *
+ * Auto-hide of [AiActivityState.Completed] / [AiActivityState.NoProvider] is
+ * the caller's responsibility — use a `LaunchedEffect(state)` with a `delay`
+ * and reset to [AiActivityState.Hidden].
  */
 @Composable
 fun AiActivityStatusLine(

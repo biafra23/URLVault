@@ -3,6 +3,7 @@ package com.jaeckel.urlvault.android.ai
 import android.util.Log
 import com.jaeckel.urlvault.ai.LocalModelProvider
 import com.jaeckel.urlvault.ai.LocalModelRegistry
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -70,7 +71,14 @@ class LocalModelRouter(
         ) : RouteEvent()
     }
 
-    private val _events = MutableSharedFlow<RouteEvent>(extraBufferCapacity = 16)
+    // DROP_OLDEST so a slow / backgrounded collector can never stall the
+    // generate path or silently lose the latest event. The UI only cares
+    // about *current* state, so dropping older Picked/Completed pairs is
+    // safer than letting tryEmit return false for the most recent one.
+    private val _events = MutableSharedFlow<RouteEvent>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     val events: SharedFlow<RouteEvent> = _events.asSharedFlow()
 
     /**
@@ -227,25 +235,44 @@ class LocalModelRouter(
         )
     }
 
+    /**
+     * Times [block] and emits a [RouteEvent.Completed] regardless of how it
+     * exits — normal `Result` (success or failure), or thrown exception
+     * (notably coroutine cancellation, which `runCatching` re-raises). Without
+     * the try/finally, a cancellation would leave the UI strip stuck in
+     * "Running…" forever.
+     *
+     * `inline` is what lets the non-suspending `block` parameter actually call
+     * suspending provider methods — the lambda body is inlined into this
+     * `suspend` function's body, so it runs in a suspending context.
+     *
+     * `nanoTime` is monotonic; `currentTimeMillis` is wall-clock and can jump
+     * backwards on NTP / manual clock changes, producing negative durations.
+     */
     private suspend inline fun <T> runTimed(
         action: String,
         provider: LocalModelProvider,
         pick: PickResult,
         block: () -> Result<T>,
     ): Result<T> {
-        val t0 = System.currentTimeMillis()
-        val result = block()
-        _events.tryEmit(
-            RouteEvent.Completed(
-                action = action,
-                activeIds = pick.activeIds,
-                readiness = pick.readiness,
-                providerId = provider.id,
-                providerName = provider.displayName,
-                durationMs = System.currentTimeMillis() - t0,
-                success = result.isSuccess,
-            ),
-        )
-        return result
+        val t0 = System.nanoTime()
+        var success = false
+        try {
+            val result = block()
+            success = result.isSuccess
+            return result
+        } finally {
+            _events.tryEmit(
+                RouteEvent.Completed(
+                    action = action,
+                    activeIds = pick.activeIds,
+                    readiness = pick.readiness,
+                    providerId = provider.id,
+                    providerName = provider.displayName,
+                    durationMs = (System.nanoTime() - t0) / 1_000_000,
+                    success = success,
+                ),
+            )
+        }
     }
 }
