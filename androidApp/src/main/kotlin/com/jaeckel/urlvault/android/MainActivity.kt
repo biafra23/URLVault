@@ -90,6 +90,11 @@ class MainActivity : ComponentActivity() {
                 val warmingIds by localModelRouter.warmingIds.collectAsState()
                 var customEntries by remember { mutableStateOf(localModelPrefs.loadCustomEntries()) }
                 var activeIds by remember { mutableStateOf(localModelPrefs.loadActiveIds()) }
+                // The user-only token (the build-time fallback isn't shown as
+                // a saved value — the row says "Using token bundled with this
+                // build" instead).
+                var hfToken by remember { mutableStateOf(localModelPrefs.loadUserHfToken().orEmpty()) }
+                val hfTokenFromBuild = remember { localModelPrefs.hasBuildTimeHfToken() }
                 // Settings reads two heavy values from EncryptedSharedPreferences:
                 // the Bitwarden credentials (decrypts via Keystore) and the
                 // field-history blob. Cache them in remembered state and only
@@ -305,6 +310,12 @@ class MainActivity : ComponentActivity() {
                                 // Pre-warm the newly-active model so the first
                                 // generate() call doesn't pay model-load cost.
                                 if (active) appScope.launch { localModelRouter.warmUpActive() }
+                            },
+                            hfToken = hfToken,
+                            hfTokenFromBuild = hfTokenFromBuild,
+                            onHfTokenChanged = { newToken ->
+                                hfToken = newToken
+                                localModelPrefs.saveHfToken(newToken)
                             },
                             onAddCustomModel = { hfRepo, hfFile, displayName ->
                                 val newEntry = ModelCatalogEntry(

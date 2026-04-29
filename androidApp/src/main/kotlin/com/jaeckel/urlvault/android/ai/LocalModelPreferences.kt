@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.jaeckel.urlvault.ai.ModelCatalogEntry
+import com.jaeckel.urlvault.android.BuildConfig
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -51,13 +52,33 @@ class LocalModelPreferences(private val context: Context) {
         prefs.edit().putStringSet(KEY_ACTIVE_IDS, ids.toSet()).apply()
     }
 
-    fun loadHfToken(): String? = prefs.getString(KEY_HF_TOKEN, null)
+    /**
+     * User-saved token wins; if blank, fall back to [BuildConfig.HF_TOKEN_DEFAULT]
+     * so a CI build that injected `HF_TOKEN` can ship gated-model access without
+     * any user action. Returns null when neither source has a token.
+     */
+    fun loadHfToken(): String? {
+        val saved = prefs.getString(KEY_HF_TOKEN, null)?.takeIf { it.isNotBlank() }
+        if (saved != null) return saved
+        return BuildConfig.HF_TOKEN_DEFAULT.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * The literal user-entered value (without the build-time fallback) so the
+     * Settings UI can show "(none)" vs. "saved: hf_…" honestly. Use
+     * [loadHfToken] for the value the downloader should actually send.
+     */
+    fun loadUserHfToken(): String? =
+        prefs.getString(KEY_HF_TOKEN, null)?.takeIf { it.isNotBlank() }
 
     fun saveHfToken(token: String?) {
         prefs.edit().apply {
             if (token.isNullOrBlank()) remove(KEY_HF_TOKEN) else putString(KEY_HF_TOKEN, token)
         }.apply()
     }
+
+    /** True iff the APK was built with a non-empty `HF_TOKEN` env var. */
+    fun hasBuildTimeHfToken(): Boolean = BuildConfig.HF_TOKEN_DEFAULT.isNotBlank()
 
     companion object {
         private const val PREFS_NAME = "urlvault_local_models_encrypted"

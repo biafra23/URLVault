@@ -111,6 +111,46 @@ Per-platform repository implementations:
 ./gradlew :shared:build                 # Build the KMP library
 ```
 
+### Hugging Face Token (gated models)
+
+Most LiteRT-LM models in the catalog (Gemma 3, Gemma 4, FunctionGemma) are *gated* on Hugging Face — the API will reject downloads with HTTP 401 until two things are true:
+
+1. You hold a Hugging Face access token with **read** scope. Create one at <https://huggingface.co/settings/tokens>.
+2. You've accepted each model's licence on its HF page (e.g. <https://huggingface.co/google/gemma-3-1b-it>). Acceptance is per-repo and is a one-time click on the web UI.
+
+URLVault accepts the token from three sources, in this order of precedence:
+
+1. **User-entered** — Settings → Local AI Models → "Hugging Face token". Stored in `EncryptedSharedPreferences` on the device. Best for personal builds.
+2. **Build-time `HF_TOKEN` env var** — read by `androidApp/build.gradle.kts` and exposed as `BuildConfig.HF_TOKEN_DEFAULT`. Used by CI.
+3. **Build-time `hfToken` in `local.properties`** — same destination, fallback when the env var is absent. Used by local developer builds.
+
+The Settings row reads "Using token bundled with this build" when sources 2 or 3 are present and the user hasn't entered one of their own.
+
+#### Local developer builds
+
+Add a single line to `local.properties` at the repo root (already in `.gitignore` — the token never leaves your machine):
+
+```properties
+hfToken=hf_xxxxxxxxxxxxxxxxxxxx
+```
+
+After that, `./gradlew :androidApp:assembleDebug` and `./gradlew :androidApp:installDebug` will pick the token up automatically. Or set the env var per-invocation:
+
+```bash
+HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx ./gradlew :androidApp:assembleDebug
+```
+
+#### CI builds
+
+Add `HF_TOKEN` as a repository secret on GitHub:
+
+- *Settings → Secrets and variables → Actions → New repository secret*, name `HF_TOKEN`.
+- The existing `build.yml` and `release.yml` workflows already read it. With the secret absent, builds still succeed and the APK ships with the field empty (the user is prompted in Settings).
+
+> **Security note.** Anything baked into the APK can be recovered by reverse-engineering. Only ship a *read-only* token that is acceptable for the people who will install the build. The user-entered path stores the token in EncryptedSharedPreferences (Android Keystore-wrapped) and is the safer default for shared / public builds.
+
+The downloader scrubs the `Authorization` header on cross-origin redirects (HF 302s gated downloads to a pre-signed CDN URL on `cas-bridge.xethub.hf.co`, which would otherwise reject the extra header with 401), so the token only travels to `huggingface.co` itself.
+
 ### iOS
 
 1. Open `iosApp/iosApp.xcodeproj` in Xcode

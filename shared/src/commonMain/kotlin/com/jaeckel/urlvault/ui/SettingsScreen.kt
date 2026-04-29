@@ -78,6 +78,9 @@ fun SettingsScreen(
     onDeleteModel: (ModelCatalogEntry) -> Unit = {},
     onToggleModelActive: (ModelCatalogEntry, Boolean) -> Unit = { _, _ -> },
     onAddCustomModel: (hfRepo: String, hfFile: String, displayName: String) -> Unit = { _, _, _ -> },
+    hfToken: String = "",
+    hfTokenFromBuild: Boolean = false,
+    onHfTokenChanged: (String) -> Unit = {},
     onOpenComparison: () -> Unit = {},
     onSaveCredentials: (BitwardenCredentials) -> Unit,
     onNavigateBack: () -> Unit,
@@ -438,6 +441,12 @@ fun SettingsScreen(
                     }
                 }
 
+                HuggingFaceTokenRow(
+                    token = hfToken,
+                    fromBuild = hfTokenFromBuild,
+                    onTokenChanged = onHfTokenChanged,
+                )
+
                 CustomModelEntryRow(onAdd = onAddCustomModel)
 
                 Button(
@@ -684,6 +693,86 @@ private fun ModelCatalogRow(
                     else -> {
                         Button(onClick = onDownload) { Text("Download") }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Lets the user paste a Hugging Face access token so the downloader can
+ * fetch gated repos (most LiteRT-LM Gemma bundles, FunctionGemma, etc.).
+ * Acceptance of each model's licence on huggingface.co is also required —
+ * the token alone doesn't grant access.
+ */
+@Composable
+private fun HuggingFaceTokenRow(
+    token: String,
+    fromBuild: Boolean,
+    onTokenChanged: (String) -> Unit,
+) {
+    // When neither a user-saved nor a build-time token exists, default the
+    // row to expanded so the user is nudged to enter one.
+    var expanded by remember(token, fromBuild) {
+        mutableStateOf(token.isBlank() && !fromBuild)
+    }
+    val masked = if (token.isBlank()) "" else token.take(4) + "…" + token.takeLast(4)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Hugging Face token", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    text = when {
+                        token.isNotBlank() -> "Saved: $masked"
+                        fromBuild -> "Using token bundled with this build"
+                        else -> "Required for gated models (Gemma, FunctionGemma)"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = expanded, onCheckedChange = { expanded = it })
+        }
+        if (expanded) {
+            var draft by remember(token) { mutableStateOf(token) }
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                label = { Text("hf_… (read access)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                text = "Create one at huggingface.co/settings/tokens, then accept each gated " +
+                    "model's licence on its page (e.g. google/gemma-3-1b-it).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        onTokenChanged(draft.trim())
+                        expanded = false
+                    },
+                    enabled = draft.trim() != token,
+                    modifier = Modifier.weight(1f),
+                ) { Text(if (token.isBlank()) "Save token" else "Update token") }
+                if (token.isNotBlank()) {
+                    Button(
+                        onClick = {
+                            onTokenChanged("")
+                            expanded = false
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Clear") }
                 }
             }
         }

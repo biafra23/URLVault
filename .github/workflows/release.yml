@@ -49,6 +49,11 @@ jobs:
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Optional Hugging Face read-token baked into the APK so gated
+          # LiteRT-LM / Gemma bundles can be downloaded without the user
+          # pasting a token. Empty / absent secret leaves the default empty
+          # and the user is prompted in Settings.
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           ./gradlew :androidApp:assembleRelease --no-daemon \
             -PappVersion=${{ steps.version.outputs.version }} \
