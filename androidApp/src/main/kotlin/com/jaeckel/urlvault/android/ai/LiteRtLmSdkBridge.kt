@@ -210,27 +210,33 @@ class LiteRtLmSdkBridge(
             // Pixel 7a / Tensor G2: the GPU backend initialises fine but
             // generation throws `Can not find OpenCL library on this device`
             // because LiteRT-LM's Top-K sampler dlopens OpenCL even on the
-            // WebGPU path. Block this backend for the rest of the session
-            // and reload on the next one (typically CPU). We hold the
-            // mutex throughout, so no other call can race in.
+            // WebGPU path. Blocklist that backend so the *next* call reloads
+            // on the remaining strategy candidates (typically CPU).
+            //
+            // We deliberately do NOT reload + retry inline here. `Engine.close()`
+            // doesn't release the GPU pipeline's native memory synchronously
+            // — observed on Pixel 7a, the in-flight reload of the CPU engine
+            // briefly held both pipelines in RAM and the process peaked at
+            // ~5.96 GB, well past Pixel 7a's effective per-app budget. The
+            // LMK reaped the app and the user saw an unexplained "LiteRT
+            // crashed the app" with no FATAL exception in logcat. Bailing
+            // out here keeps peak memory at 1× model and lets the very next
+            // entry-point call (provider.generateXxx → bridge.load) start
+            // from a clean slate with the blocklist already applied.
             val brokenBackend = currentBackend
-            val path = currentPath
-            if (brokenBackend != null && path != null && isRecoverableRuntimeError(t)) {
+            if (brokenBackend != null && isRecoverableRuntimeError(t)) {
                 Log.w(
                     TAG,
                     "Recovering from $brokenBackend runtime failure (${t.message?.take(120)}) — " +
-                        "blocklisting and reloading on next backend",
+                        "blocklisting; next request will reload on remaining backends.",
                 )
                 runtimeBlockedBackends += brokenBackend
                 runCatching { engine?.close() }
                 engine = null
                 currentPath = null
                 currentBackend = null
-                loadInternalLocked(path)
-                runCollectOnce(text, maxTokens)
-            } else {
-                throw t
             }
+            throw t
         }
     }
 
