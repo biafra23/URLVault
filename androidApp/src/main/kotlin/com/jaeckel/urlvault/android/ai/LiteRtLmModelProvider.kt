@@ -40,6 +40,15 @@ class LiteRtLmModelProvider(
 
     override suspend fun isReady(): Boolean = bridge.isAvailable()
 
+    /**
+     * Backend the SDK ended up loading on (`"NPU"` / `"GPU"` / `"CPU"`),
+     * or null if no model is loaded yet. Read by `LocalModelRouter` to
+     * enrich the debug provenance tag — the saved bookmark then carries
+     * `liteRt[GPU]:gemma-3-1b-it-int4:2.34s` so it's obvious at a glance
+     * whether NPU/GPU acceleration was actually in play.
+     */
+    fun currentBackendLabel(): String? = bridge.currentBackendLabel()
+
     override suspend fun preload() {
         // Same mutex as the generate path so an inference call can't race a
         // warm-up into the LiteRT-LM Engine constructor.
@@ -115,7 +124,20 @@ class LiteRtLmModelProvider(
 
     override suspend fun generateDescription(url: String, title: String): Result<String> = runCatching {
         val pageContent = runCatching { contentExtractor.extract(url) }.getOrNull()
-        val pageSummary = pageContent?.bestSummary(MAX_PAGE_CONTENT_LENGTH).orEmpty()
+
+        // Short-circuit on a page-provided description — same shape as
+        // generateTitle. Most pages carry a publisher-written
+        // og:description / <meta name="description"> already optimised for
+        // social-card / SERP display; the LLM rewrite is wasted work and
+        // on Tensor CPU here it costs ~1–5 seconds per call. Skip
+        // straight to it. The model fires only when the page has no
+        // metadata-provided description.
+        val nativeDesc = pageContent?.let { it.ogDescription ?: it.metaDescription }
+        if (!nativeDesc.isNullOrBlank()) {
+            return@runCatching validateDescription(nativeDesc.trim())
+        }
+
+        val pageSummary = pageContent?.visibleText.orEmpty().take(MAX_PAGE_CONTENT_LENGTH)
 
         val example = """{"description": "A Kotlin Multiplatform tutorial covering shared UI with Compose."}"""
 

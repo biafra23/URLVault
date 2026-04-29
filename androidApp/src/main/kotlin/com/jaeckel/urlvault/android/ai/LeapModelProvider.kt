@@ -114,7 +114,24 @@ class LeapModelProvider(
 
     override suspend fun generateDescription(url: String, title: String): Result<String> = runCatching {
         val pageContent = runCatching { contentExtractor.extract(url) }.getOrNull()
-        val pageSummary = pageContent?.bestSummary(MAX_PAGE_CONTENT_LENGTH).orEmpty()
+
+        // Short-circuit on a page-provided description — same shape as
+        // generateTitle. Two reasons this matters specifically for LFM2-
+        // Extract:
+        //  - it's an *extraction* fine-tune, not a generation one. Asking
+        //    it to rewrite an already-good summary just wastes a model
+        //    call;
+        //  - on pages where the supplied text has nothing extractable, the
+        //    grammar's `minLength: 1` cornering produces degenerate
+        //    sequences like `:","",..."` (see `looksDegenerate`). Skipping
+        //    the LLM entirely when a usable description is already
+        //    available eliminates that failure mode for those pages.
+        val nativeDesc = pageContent?.let { it.ogDescription ?: it.metaDescription }
+        if (!nativeDesc.isNullOrBlank()) {
+            return@runCatching validateDescription(nativeDesc.trim())
+        }
+
+        val pageSummary = pageContent?.visibleText.orEmpty().take(MAX_PAGE_CONTENT_LENGTH)
 
         val schema = """
             {
@@ -135,9 +152,21 @@ class LeapModelProvider(
         // this as "extract a summary from the supplied text" rather than
         // "write a description"; otherwise the model has nothing to extract,
         // the grammar still forces a non-empty string, and we get garbage
-        // (the original prompt produced a single-comma description).
+        // (the original prompt produced a single-comma description; a later
+        // observed regression produced `{"description":":\",\",..."}` —
+        // valid JSON shape, garbage value, when supplied text was thin).
+        // Defences against that mode:
+        //   - state explicitly that real natural-language sentences are
+        //     required and that punctuation-only output is wrong;
+        //   - give the model a concrete fallback to emit when there's
+        //     nothing to extract, so it doesn't have to invent garbage to
+        //     satisfy the grammar.
+        // The provider also rejects degenerate output post-hoc — see
+        // `looksDegenerate`.
         val task = buildString {
-            appendLine("Extract a 1-2 sentence summary describing what the web page below is about. Use only information present in the supplied text.")
+            appendLine("Extract a 1-2 sentence summary describing what the web page below is about, using only information present in the supplied text.")
+            appendLine("The summary must be real English (or German) sentences with normal words and spaces — never punctuation-only output.")
+            appendLine("If the supplied text does not contain enough information to summarise, return exactly: No summary available.")
             appendLine()
             appendLine("URL: $url")
             if (title.isNotBlank()) appendLine("Title: $title")
@@ -145,9 +174,9 @@ class LeapModelProvider(
                 appendLine("Page content:")
                 appendLine(pageSummary)
             } else {
-                // No page content fetched — give the model something concrete
-                // to extract from rather than asking it to invent prose.
-                appendLine("Page content: (unavailable — derive a one-sentence summary from the URL and title only)")
+                // No page content fetched — explicitly authorise the
+                // canonical fallback rather than asking for invented prose.
+                appendLine("Page content: (unavailable — return: No summary available.)")
             }
             appendLine()
             appendLine("Return the extracted summary as the \"description\" field.")
@@ -159,7 +188,12 @@ class LeapModelProvider(
         }
         Log.i(TAG, "[$id] description raw: $raw")
 
-        validateDescription(parseJson<DescriptionExtraction>(raw).description.trim())
+        val text = parseJson<DescriptionExtraction>(raw).description.trim()
+        if (looksDegenerate(text)) {
+            Log.w(TAG, "[$id] description rejected as degenerate: ${text.take(80)}")
+            error("Model produced degenerate output (no extractable content)")
+        }
+        validateDescription(text)
     }
 
     override suspend fun generateTitle(url: String): Result<String> = runCatching {
@@ -203,7 +237,33 @@ class LeapModelProvider(
         }
         Log.i(TAG, "[$id] title raw: $raw")
 
-        parseJson<TitleExtraction>(raw).title.trim().removeSurrounding("\"")
+        val text = parseJson<TitleExtraction>(raw).title.trim().removeSurrounding("\"")
+        if (looksDegenerate(text)) {
+            Log.w(TAG, "[$id] title rejected as degenerate: ${text.take(80)}")
+            error("Model produced degenerate output (no extractable content)")
+        }
+        text
+    }
+
+    /**
+     * Heuristic to catch the LFM2-Extract failure mode where the grammar-
+     * constrained sampler forces a non-empty string but the supplied text
+     * has nothing to extract — the model fills the budget with degenerate
+     * sequences like `:","","",...`. JSON shape is valid; value is garbage.
+     *
+     * Real natural-language output is mostly letters with reasonable
+     * character diversity. Reject anything that fails both bars so the UI
+     * surfaces "AI generation failed" instead of persisting garbage.
+     */
+    private fun looksDegenerate(text: String): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.length < 5) return true
+        val letterCount = trimmed.count { it.isLetter() }
+        val letterRatio = letterCount.toDouble() / trimmed.length
+        if (letterRatio < 0.4) return true
+        val distinctChars = trimmed.toSet().size
+        if (distinctChars < 5) return true
+        return false
     }
 
     /**

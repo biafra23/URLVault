@@ -288,13 +288,26 @@ class AICoreService(httpClient: HttpClient) {
 
     /**
      * Generate a 1-2 sentence description for a bookmark.
-     * Fetches the web page to provide context for an accurate description.
+     *
+     * Same shape as [generateTitle]: if the page itself carries a
+     * publisher-written summary (`<meta property="og:description">` or
+     * `<meta name="description">`), return it verbatim — the LLM can't beat
+     * what the author wrote about their own page, and burning a Gemini Nano
+     * call to "rewrite" an existing 1-2 sentence summary is wasted work
+     * that often degrades the result. The LLM only fires for pages with no
+     * metadata-provided description, where genuine extraction from
+     * `visibleText` is needed.
      */
     suspend fun generateDescription(url: String, title: String): Result<String> {
         return runCatching {
             val pageContent = fetchPageContent(url)
-            val pageSummary = pageContent?.bestSummary(MAX_PAGE_CONTENT_LENGTH) ?: ""
 
+            val nativeDesc = pageContent?.let { it.ogDescription ?: it.metaDescription }
+            if (!nativeDesc.isNullOrBlank()) {
+                return@runCatching validateDescription(nativeDesc.trim())
+            }
+
+            val pageSummary = pageContent?.visibleText.orEmpty().take(MAX_PAGE_CONTENT_LENGTH)
             val prompt = buildString {
                 appendLine("Write a 1-2 sentence factual description for this bookmark.")
                 appendLine("Return ONLY the description, nothing else.")
@@ -305,15 +318,12 @@ class AICoreService(httpClient: HttpClient) {
                     appendLine("Title: $title")
                 }
                 if (pageSummary.isNotBlank()) {
-                    appendLine("Page summary: $pageSummary")
+                    appendLine("Page text: $pageSummary")
                 } else {
                     appendLine("If you cannot determine what the page is about, respond with: Unable to generate description.")
                 }
             }
-            
-            // See generateTags() — inline runBenchmarking removed for the
-            // same reason; explicit comparison lives in
-            // ModelComparisonScreen.
+
             validateDescription(runInference(prompt).trim())
         }
     }

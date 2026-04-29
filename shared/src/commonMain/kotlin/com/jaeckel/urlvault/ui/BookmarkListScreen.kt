@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -117,17 +120,17 @@ fun BookmarkListScreen(
                                 strokeWidth = 2.dp
                             )
                         } else {
-                            Text(
-                                text = "\uD83D\uDD04",
-                                style = MaterialTheme.typography.titleMedium
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = "Sync with Bitwarden",
                             )
                         }
                     }
                     // Settings button
                     IconButton(onClick = onOpenSettings) {
-                        Text(
-                            text = "\u2699\uFE0F",
-                            style = MaterialTheme.typography.titleMedium
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
                         )
                     }
                 }

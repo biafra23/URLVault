@@ -34,6 +34,12 @@ jobs:
         run: ./gradlew :shared:check --no-daemon
 
       - name: Build Android debug APK
+        env:
+          # Optional Hugging Face read-token baked into the APK at build
+          # time; needed to download gated LiteRT-LM / Gemma model bundles
+          # without the user pasting one into Settings. Repository secret;
+          # build still succeeds if absent (token defaults to empty).
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: ./gradlew :androidApp:assembleDebug --no-daemon
 
       - name: Resolve APK artifact name

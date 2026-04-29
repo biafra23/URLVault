@@ -1,6 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.nio.file.Files
 import java.util.Base64
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -41,6 +42,31 @@ android {
         versionName = appVersion
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Optional Hugging Face read-token, baked into the APK at build time
+        // so the downloader can fetch gated LiteRT-LM bundles without the
+        // user pasting a token. Two sources, in order of precedence:
+        //   1. HF_TOKEN env var — used by CI (GitHub Actions secret).
+        //   2. `hfToken` property in <repo>/local.properties — used for
+        //      local developer builds. local.properties is gitignored so
+        //      the token never leaves the developer's machine.
+        // Empty default lets the build succeed without either; the user can
+        // paste a token into the Settings screen instead.
+        // Whitespace and any non-token characters are stripped to keep the
+        // generated string literal safe — real HF tokens are alphanumeric
+        // with `_` / `-`. Note: anything baked into the APK is recoverable
+        // via reverse engineering — only ship a *read-only* HF token here.
+        val hfTokenFromLocalProps: String? = rootProject.file("local.properties")
+            .takeIf { it.exists() }
+            ?.let { f ->
+                val props = Properties()
+                f.inputStream().use { stream -> props.load(stream) }
+                props.getProperty("hfToken")
+            }
+        val hfTokenDefault = (System.getenv("HF_TOKEN") ?: hfTokenFromLocalProps ?: "")
+            .trim()
+            .filter { it.isLetterOrDigit() || it == '_' || it == '-' }
+        buildConfigField("String", "HF_TOKEN_DEFAULT", "\"$hfTokenDefault\"")
 
         // Llamatik ships native libs for arm64-v8a, armeabi-v7a, x86, x86_64.
         // libllama_jni.so alone is ~23 MB per ABI; restricting to arm64-v8a cuts
