@@ -3,10 +3,9 @@ package com.jaeckel.urlvault.android.ai
 import android.util.Log
 import com.jaeckel.urlvault.ai.LocalModelProvider
 import com.jaeckel.urlvault.ai.LocalModelRegistry
+import com.jaeckel.urlvault.ai.ModelRuntime
 import com.jaeckel.urlvault.android.BuildConfig
 import kotlinx.coroutines.channels.BufferOverflow
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -16,7 +15,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 private const val TAG = "LocalModelRouter"
-private val DEBUG_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss")
 
 /**
  * Selects which `LocalModelProvider` runs the bookmark AI calls. The selection
@@ -190,23 +188,40 @@ class LocalModelRouter(
             return Result.failure(IllegalStateException("No ready local AI model"))
         }
         emitPicked("tags", provider, pick)
+        val t0 = System.nanoTime()
         val result = runTimed("tags", provider, pick) {
             provider.generateTags(url, title, content)
         }
-        // DEBUG-only: append a synthetic tag identifying which provider+time
-        // generated the list, so a glance at the saved bookmark tells you
-        // which SDK/model produced these tags. Stripped in release builds so
-        // synced Bitwarden entries don't end up with `dbg:…` in production.
+        val durationMs = (System.nanoTime() - t0) / 1_000_000
+        // DEBUG-only: append a synthetic tag identifying which SDK ran and how
+        // long it took, so a glance at the saved bookmark tells you both at
+        // once. Stripped in release builds so synced Bitwarden entries never
+        // carry `dbg:…` tags into production.
         return if (BuildConfig.DEBUG) {
-            result.map { it + debugProvenanceTag(provider) }
+            result.map { it + debugProvenanceTag(provider, durationMs) }
         } else {
             result
         }
     }
 
-    private fun debugProvenanceTag(provider: LocalModelProvider): String {
-        val time = LocalTime.now().format(DEBUG_TIME_FORMATTER)
-        return "dbg:${provider.id}@$time"
+    private fun debugProvenanceTag(provider: LocalModelProvider, durationMs: Long): String {
+        val sdk = when (provider.runtime) {
+            ModelRuntime.ML_KIT -> "aicore"
+            ModelRuntime.LLAMA_CPP -> "llama"
+            ModelRuntime.LEAP -> "leap"
+            ModelRuntime.MEDIAPIPE -> "liteRt"
+        }
+        // ms below 1s, two-decimal seconds above. Avoids `String.format`
+        // (host-locale-dependent) by doing the math directly.
+        val duration = if (durationMs < 1000) {
+            "${durationMs}ms"
+        } else {
+            val whole = durationMs / 1000
+            val hundredths = (durationMs % 1000) / 10
+            val padded = if (hundredths < 10) "0$hundredths" else "$hundredths"
+            "$whole.${padded}s"
+        }
+        return "dbg:$sdk@$duration"
     }
 
     suspend fun generateDescription(url: String, title: String): Result<String> {
