@@ -30,9 +30,24 @@ fun interface LiteRtLmBackendStrategy {
 
 /**
  * NPU first when the device's `nativeLibraryDir` is non-blank (vendor libs
- * are loaded from there for QCS / Pixel chips), then GPU, then CPU. On
- * unsupported devices the NPU init throws and `load()` falls through to
- * the next backend.
+ * are loaded from there for QCS / Pixel chips), then **CPU**, then GPU.
+ *
+ * GPU is intentionally deprioritised below CPU. The LiteRT-LM SDK
+ * auto-selects the Top-K sampler based on engine backend: GPU engine
+ * pulls in the WebGPU / OpenCL sampler chain, which on Pixel Tensor (7a /
+ * 8 / 9) ends with `Can not find OpenCL library on this device` — the
+ * fallback is statically-linked OpenCL too. There is no public API knob
+ * to use the CPU sampler with a GPU engine. Using `Backend.CPU` for the
+ * engine forces the CPU sampler and side-steps the issue entirely.
+ *
+ * Cost: on devices where GPU sampling DOES work (older Snapdragon with
+ * full OpenCL drivers), we'd miss the GPU speedup. Acceptable, given
+ * "always works on CPU" beats "fast on some devices, broken on Tensor".
+ *
+ * The runtime self-heal in [LiteRtLmSdkBridge.runCollect] still catches
+ * the OpenCL error if it ever fires (e.g. someone explicitly forces a GPU
+ * strategy) and blocklists the broken backend so subsequent calls try
+ * the next candidate.
  */
 object DefaultBackendStrategy : LiteRtLmBackendStrategy {
     override fun candidates(nativeLibDir: String): List<Pair<String, Backend>> {
@@ -40,9 +55,9 @@ object DefaultBackendStrategy : LiteRtLmBackendStrategy {
         if (nativeLibDir.isNotBlank()) {
             list.add("NPU" to Backend.NPU(nativeLibDir))
         }
-        list.add("GPU" to Backend.GPU())
         // null = default thread count picked by the runtime.
         list.add("CPU" to Backend.CPU(null))
+        list.add("GPU" to Backend.GPU())
         return list
     }
 }
