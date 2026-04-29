@@ -3,7 +3,10 @@ package com.jaeckel.urlvault.android.ai
 import android.util.Log
 import com.jaeckel.urlvault.ai.LocalModelProvider
 import com.jaeckel.urlvault.ai.LocalModelRegistry
+import com.jaeckel.urlvault.android.BuildConfig
 import kotlinx.coroutines.channels.BufferOverflow
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -13,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 private const val TAG = "LocalModelRouter"
+private val DEBUG_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss")
 
 /**
  * Selects which `LocalModelProvider` runs the bookmark AI calls. The selection
@@ -186,7 +190,23 @@ class LocalModelRouter(
             return Result.failure(IllegalStateException("No ready local AI model"))
         }
         emitPicked("tags", provider, pick)
-        return runTimed("tags", provider, pick) { provider.generateTags(url, title, content) }
+        val result = runTimed("tags", provider, pick) {
+            provider.generateTags(url, title, content)
+        }
+        // DEBUG-only: append a synthetic tag identifying which provider+time
+        // generated the list, so a glance at the saved bookmark tells you
+        // which SDK/model produced these tags. Stripped in release builds so
+        // synced Bitwarden entries don't end up with `dbg:…` in production.
+        return if (BuildConfig.DEBUG) {
+            result.map { it + debugProvenanceTag(provider) }
+        } else {
+            result
+        }
+    }
+
+    private fun debugProvenanceTag(provider: LocalModelProvider): String {
+        val time = LocalTime.now().format(DEBUG_TIME_FORMATTER)
+        return "dbg:${provider.id}@$time"
     }
 
     suspend fun generateDescription(url: String, title: String): Result<String> {
