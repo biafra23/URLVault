@@ -290,14 +290,16 @@ class ModelDownloadManager(
      * Probe the server for the file's total size without downloading the
      * whole thing. Sends `Range: bytes=0-0` (a 1-byte slice) so the response
      * carries a `Content-Range: bytes 0-0/<total>` header we can parse.
-     * Follows the same manual-redirect chain as openWithRedirects to keep
-     * the Authorization header attached on CDN redirects. Returns -1 if the
+     * Follows the same manual-redirect chain as openWithRedirects, mirroring
+     * its same-host Authorization rule (see notes there). Returns -1 if the
      * server doesn't report a total (e.g. on a non-Range-capable origin).
      */
     private fun discoverTotalBytes(urlString: String, token: String?, maxHops: Int = 5): Long {
+        val originalHost = URL(urlString).host
         var url = URL(urlString)
         var hops = 0
         while (true) {
+            val sameHost = url.host.equals(originalHost, ignoreCase = true)
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 30_000
@@ -305,7 +307,9 @@ class ModelDownloadManager(
                 instanceFollowRedirects = false
                 setRequestProperty("User-Agent", "URLVault/1.0")
                 setRequestProperty("Range", "bytes=0-0")
-                if (!token.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $token")
+                if (sameHost && !token.isNullOrBlank()) {
+                    setRequestProperty("Authorization", "Bearer $token")
+                }
             }
             try {
                 val code = conn.responseCode
@@ -338,9 +342,13 @@ class ModelDownloadManager(
     }
 
     /**
-     * Follow up to 5 redirects manually so we re-apply the Authorization /
-     * Range headers on each hop (HttpURLConnection's automatic redirect
-     * stripping would otherwise drop them).
+     * Follow up to 5 redirects manually so we re-apply the Range header on
+     * each hop (HttpURLConnection would otherwise drop it). The Authorization
+     * header is only attached while we are still on the **original host** —
+     * Hugging Face 302s gated downloads to a pre-signed CDN URL on
+     * `cas-bridge.xethub.hf.co` (and similar), and that CDN rejects extra
+     * `Authorization: Bearer …` headers with HTTP 401. Browsers and curl
+     * drop auth across origins for exactly the same reason.
      */
     private fun openWithRedirects(
         urlString: String,
@@ -348,9 +356,11 @@ class ModelDownloadManager(
         token: String?,
         maxHops: Int = 5,
     ): OpenResult {
+        val originalHost = URL(urlString).host
         var url = URL(urlString)
         var hops = 0
         while (true) {
+            val sameHost = url.host.equals(originalHost, ignoreCase = true)
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 30_000
@@ -358,7 +368,9 @@ class ModelDownloadManager(
                 instanceFollowRedirects = false
                 setRequestProperty("User-Agent", "URLVault/1.0")
                 if (rangeStart > 0) setRequestProperty("Range", "bytes=$rangeStart-")
-                if (!token.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $token")
+                if (sameHost && !token.isNullOrBlank()) {
+                    setRequestProperty("Authorization", "Bearer $token")
+                }
             }
             val code = conn.responseCode
             when (code) {

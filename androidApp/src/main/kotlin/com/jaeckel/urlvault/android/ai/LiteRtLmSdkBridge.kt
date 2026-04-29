@@ -30,9 +30,23 @@ fun interface LiteRtLmBackendStrategy {
 
 /**
  * NPU first when the device's `nativeLibraryDir` is non-blank (vendor libs
- * are loaded from there for QCS / Pixel chips), then GPU, then CPU. On
- * unsupported devices the NPU init throws and `load()` falls through to
- * the next backend.
+ * are loaded from there for QCS / Pixel chips), then **CPU**, then GPU.
+ *
+ * GPU is intentionally last. On every Pixel Tensor we've tested (G2 on
+ * Pixel 7a, G5 on Pixel 10 Pro Fold) the GPU engine loads but the first
+ * generate call throws `Can not find OpenCL library on this device` —
+ * LiteRT-LM 0.10.x auto-selects an OpenCL Top-K sampler from the engine
+ * backend and Tensor doesn't ship OpenCL drivers. The SDK has no public
+ * knob to use the CPU sampler with a GPU engine, so on Tensor the only
+ * way to get a working sampler is to run the engine on CPU too. Putting
+ * CPU before GPU avoids a wasted ~5–10 s GPU load + failed generate
+ * cycle on every cold start on those devices.
+ *
+ * Cost: on a hypothetical device with working OpenCL drivers we'd miss
+ * the GPU speedup. We don't currently have such a test device and the
+ * "correct on Tensor" trade is much more important. The runtime
+ * self-heal in [LiteRtLmSdkBridge.runCollect] still catches the OpenCL
+ * error if a custom strategy puts GPU first.
  */
 object DefaultBackendStrategy : LiteRtLmBackendStrategy {
     override fun candidates(nativeLibDir: String): List<Pair<String, Backend>> {
@@ -40,9 +54,9 @@ object DefaultBackendStrategy : LiteRtLmBackendStrategy {
         if (nativeLibDir.isNotBlank()) {
             list.add("NPU" to Backend.NPU(nativeLibDir))
         }
-        list.add("GPU" to Backend.GPU())
         // null = default thread count picked by the runtime.
         list.add("CPU" to Backend.CPU(null))
+        list.add("GPU" to Backend.GPU())
         return list
     }
 }
@@ -70,6 +84,16 @@ class LiteRtLmSdkBridge(
     private var currentPath: String? = null
     private var currentBackend: String? = null
 
+    /**
+     * Backends that *initialised successfully* but then failed at runtime
+     * during `generateContent` (e.g. Pixel 7a's Tensor G2 GPU loads fine but
+     * the Top-K sampler tries to dlopen OpenCL and the Tensor stack has none,
+     * so `runCollect` throws `Can not find OpenCL library on this device`).
+     * Filtered out of subsequent loads in this process so the bridge doesn't
+     * keep redoing the same dance every call. Cleared on app process death.
+     */
+    private val runtimeBlockedBackends = mutableSetOf<String>()
+
     private val classLoaderProbe: Boolean by lazy {
         try {
             Class.forName("com.google.ai.edge.litertlm.Engine")
@@ -83,65 +107,93 @@ class LiteRtLmSdkBridge(
 
     override fun isAvailable(): Boolean = classLoaderProbe
 
+    override fun currentBackendLabel(): String? = currentBackend
+
     override suspend fun load(absolutePath: String) {
         mutex.withLock {
             if (currentPath == absolutePath && engine != null) {
                 Log.v(TAG, "load: already loaded $absolutePath, no-op")
                 return
             }
-            withContext(Dispatchers.IO) {
-                engine?.let {
-                    Log.i(TAG, "load: switching model — closing previous $currentPath")
-                    runCatching { it.close() }
-                }
-                engine = null
-                currentPath = null
-                currentBackend = null
+            loadInternalLocked(absolutePath)
+        }
+    }
 
-                val cacheDir = File(context.cacheDir, "litertlm").also { it.mkdirs() }
-                val nativeLibDir = context.applicationInfo.nativeLibraryDir.orEmpty()
-                val backendsToTry = backendStrategy.candidates(nativeLibDir)
+    /**
+     * Same logic as [load] but assumes the caller already holds [mutex].
+     * Exists so [runCollect] can reload the engine on the next backend after
+     * an OpenCL-style runtime failure without dropping and re-acquiring the
+     * mutex (which would let another caller race in mid-recovery).
+     */
+    private suspend fun loadInternalLocked(absolutePath: String) {
+        withContext(Dispatchers.IO) {
+            engine?.let {
+                Log.i(TAG, "load: switching model — closing previous $currentPath")
+                runCatching { it.close() }
+            }
+            engine = null
+            currentPath = null
+            currentBackend = null
 
-                var lastError: Throwable? = null
-                for ((label, backend) in backendsToTry) {
-                    val t0 = System.currentTimeMillis()
-                    Log.i(TAG, "load: trying backend=$label for $absolutePath")
-                    val candidate = Engine(
-                        EngineConfig(
-                            modelPath = absolutePath,
-                            backend = backend,
-                            visionBackend = backend,
-                            audioBackend = backend,
-                            maxNumTokens = null,
-                            maxNumImages = null,
-                            cacheDir = cacheDir.absolutePath,
-                        ),
-                    )
-                    val initOk = runCatching { candidate.initialize() }
-                    if (initOk.isSuccess) {
-                        engine = candidate
-                        currentPath = absolutePath
-                        currentBackend = label
-                        Log.i(
-                            TAG,
-                            "load: ready on $label in ${System.currentTimeMillis() - t0}ms — $absolutePath",
-                        )
-                        return@withContext
-                    } else {
-                        lastError = initOk.exceptionOrNull()
-                        Log.w(
-                            TAG,
-                            "load: backend=$label failed (${lastError?.message}); trying next",
-                        )
-                        runCatching { candidate.close() }
-                    }
-                }
-                val tried = backendsToTry.joinToString(" → ") { it.first }
+            val cacheDir = File(context.cacheDir, "litertlm").also { it.mkdirs() }
+            val nativeLibDir = context.applicationInfo.nativeLibraryDir.orEmpty()
+            val backendsToTry = backendStrategy.candidates(nativeLibDir)
+                .filterNot { (label, _) -> label in runtimeBlockedBackends }
+
+            if (backendsToTry.isEmpty()) {
                 throw IllegalStateException(
-                    "LiteRT-LM failed on every backend ($tried). Last error: ${lastError?.message}",
-                    lastError,
+                    "LiteRT-LM has no usable backends left for this session " +
+                        "(all blocked by prior runtime failures: $runtimeBlockedBackends)",
                 )
             }
+
+            var lastError: Throwable? = null
+            for ((label, backend) in backendsToTry) {
+                val t0 = System.currentTimeMillis()
+                Log.i(TAG, "load: trying backend=$label for $absolutePath")
+                // visionBackend / audioBackend left null: every entry in
+                // ModelCatalog is text-only. Setting them to `backend`
+                // tells the engine to enable those modalities, and
+                // initialize() then fails with `NOT_FOUND:
+                // TF_LITE_VISION_ENCODER not found in the model.` for
+                // text-only bundles (FunctionGemma 270M, Gemma 3 270M,
+                // Qwen3 0.6B, etc.). When a true multi-modal Gemma 4 E2B
+                // bundle is added later, switch this on per-entry.
+                val candidate = Engine(
+                    EngineConfig(
+                        modelPath = absolutePath,
+                        backend = backend,
+                        visionBackend = null,
+                        audioBackend = null,
+                        maxNumTokens = null,
+                        maxNumImages = null,
+                        cacheDir = cacheDir.absolutePath,
+                    ),
+                )
+                val initOk = runCatching { candidate.initialize() }
+                if (initOk.isSuccess) {
+                    engine = candidate
+                    currentPath = absolutePath
+                    currentBackend = label
+                    Log.i(
+                        TAG,
+                        "load: ready on $label in ${System.currentTimeMillis() - t0}ms — $absolutePath",
+                    )
+                    return@withContext
+                } else {
+                    lastError = initOk.exceptionOrNull()
+                    Log.w(
+                        TAG,
+                        "load: backend=$label failed (${lastError?.message}); trying next",
+                    )
+                    runCatching { candidate.close() }
+                }
+            }
+            val tried = backendsToTry.joinToString(" → ") { it.first }
+            throw IllegalStateException(
+                "LiteRT-LM failed on every backend ($tried). Last error: ${lastError?.message}",
+                lastError,
+            )
         }
     }
 
@@ -168,6 +220,43 @@ class LiteRtLmSdkBridge(
     }
 
     private suspend fun runCollect(text: String, maxTokens: Int): String {
+        return try {
+            runCollectOnce(text, maxTokens)
+        } catch (t: Throwable) {
+            // Pixel 7a / Tensor G2: the GPU backend initialises fine but
+            // generation throws `Can not find OpenCL library on this device`
+            // because LiteRT-LM's Top-K sampler dlopens OpenCL even on the
+            // WebGPU path. Blocklist that backend so the *next* call reloads
+            // on the remaining strategy candidates (typically CPU).
+            //
+            // We deliberately do NOT reload + retry inline here. `Engine.close()`
+            // doesn't release the GPU pipeline's native memory synchronously
+            // — observed on Pixel 7a, the in-flight reload of the CPU engine
+            // briefly held both pipelines in RAM and the process peaked at
+            // ~5.96 GB, well past Pixel 7a's effective per-app budget. The
+            // LMK reaped the app and the user saw an unexplained "LiteRT
+            // crashed the app" with no FATAL exception in logcat. Bailing
+            // out here keeps peak memory at 1× model and lets the very next
+            // entry-point call (provider.generateXxx → bridge.load) start
+            // from a clean slate with the blocklist already applied.
+            val brokenBackend = currentBackend
+            if (brokenBackend != null && isRecoverableRuntimeError(t)) {
+                Log.w(
+                    TAG,
+                    "Recovering from $brokenBackend runtime failure (${t.message?.take(120)}) — " +
+                        "blocklisting; next request will reload on remaining backends.",
+                )
+                runtimeBlockedBackends += brokenBackend
+                runCatching { engine?.close() }
+                engine = null
+                currentPath = null
+                currentBackend = null
+            }
+            throw t
+        }
+    }
+
+    private suspend fun runCollectOnce(text: String, maxTokens: Int): String {
         val current = engine ?: error("LiteRT-LM: no model loaded")
         // maxNumTokens here is advisory — the SDK still respects the config-
         // level cap. We pass through whatever sampling the user requests.
@@ -194,6 +283,16 @@ class LiteRtLmSdkBridge(
         } finally {
             runCatching { session.close() }
         }
+    }
+
+    /**
+     * Recoverable = the engine loaded but a runtime feature it tried to use
+     * isn't on this device. Right now the only known case is OpenCL missing
+     * on Pixel Tensor; widen as we hit more.
+     */
+    private fun isRecoverableRuntimeError(t: Throwable): Boolean {
+        val msg = (t.message ?: "").lowercase()
+        return "opencl" in msg || "open cl" in msg
     }
 
     override suspend fun unload() {

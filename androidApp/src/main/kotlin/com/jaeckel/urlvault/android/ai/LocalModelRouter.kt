@@ -3,6 +3,9 @@ package com.jaeckel.urlvault.android.ai
 import android.util.Log
 import com.jaeckel.urlvault.ai.LocalModelProvider
 import com.jaeckel.urlvault.ai.LocalModelRegistry
+import com.jaeckel.urlvault.ai.ModelRuntime
+import com.jaeckel.urlvault.android.BuildConfig
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -51,9 +54,33 @@ class LocalModelRouter(
             override val readiness: List<Pair<String, Boolean>>,
             val reason: String,
         ) : RouteEvent()
+
+        /**
+         * Fired by `generateXxx` *after* the provider call returns or throws.
+         * Carries the wall-clock duration so a UI status line can show
+         * "tags via Liquid LFM2 Extract — 1247 ms". Note that for `title` on
+         * pages with a usable `<title>`/`og:title`, no LLM ran — duration
+         * reflects only the page fetch, which is intentional.
+         */
+        data class Completed(
+            override val action: String,
+            override val activeIds: Set<String>,
+            override val readiness: List<Pair<String, Boolean>>,
+            val providerId: String,
+            val providerName: String,
+            val durationMs: Long,
+            val success: Boolean,
+        ) : RouteEvent()
     }
 
-    private val _events = MutableSharedFlow<RouteEvent>(extraBufferCapacity = 16)
+    // DROP_OLDEST so a slow / backgrounded collector can never stall the
+    // generate path or silently lose the latest event. The UI only cares
+    // about *current* state, so dropping older Picked/Completed pairs is
+    // safer than letting tryEmit return false for the most recent one.
+    private val _events = MutableSharedFlow<RouteEvent>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     val events: SharedFlow<RouteEvent> = _events.asSharedFlow()
 
     /**
@@ -109,33 +136,6 @@ class LocalModelRouter(
         return PickResult(fallback, reason, active, readinessSummary)
     }
 
-    private suspend fun pickAndEmit(action: String): LocalModelProvider? {
-        val result = pickWithReason()
-        val provider = result.provider
-        if (provider != null) {
-            _events.tryEmit(
-                RouteEvent.Picked(
-                    action = action,
-                    activeIds = result.activeIds,
-                    readiness = result.readiness,
-                    providerId = provider.id,
-                    providerName = provider.displayName,
-                    reason = result.reason,
-                ),
-            )
-        } else {
-            _events.tryEmit(
-                RouteEvent.None(
-                    action = action,
-                    activeIds = result.activeIds,
-                    readiness = result.readiness,
-                    reason = result.reason,
-                ),
-            )
-        }
-        return provider
-    }
-
     /**
      * Whether at least one registered provider can serve a request right now.
      * Used by the UI to decide whether to drive bookmark generation through
@@ -181,20 +181,147 @@ class LocalModelRouter(
     }
 
     suspend fun generateTags(url: String, title: String, content: String): Result<List<String>> {
-        val provider = pickAndEmit("tags")
-            ?: return Result.failure(IllegalStateException("No ready local AI model"))
-        return provider.generateTags(url, title, content)
+        val pick = pickWithReason()
+        val provider = pick.provider
+        if (provider == null) {
+            emitNone("tags", pick)
+            return Result.failure(IllegalStateException("No ready local AI model"))
+        }
+        emitPicked("tags", provider, pick)
+        val t0 = System.nanoTime()
+        val result = runTimed("tags", provider, pick) {
+            provider.generateTags(url, title, content)
+        }
+        val durationMs = (System.nanoTime() - t0) / 1_000_000
+        // DEBUG-only: append a synthetic tag of the form
+        // `<sdk>:<model>:<duration>` (e.g. `leap:lfm2-1.2b-extract:2.34s`)
+        // so a glance at the saved bookmark tells you SDK, model variant,
+        // and how long generation took. Stripped in release builds so
+        // synced Bitwarden entries never carry the marker into production.
+        return if (BuildConfig.DEBUG) {
+            result.map { it + debugProvenanceTag(provider, durationMs) }
+        } else {
+            result
+        }
+    }
+
+    private fun debugProvenanceTag(provider: LocalModelProvider, durationMs: Long): String {
+        val sdk = when (provider.runtime) {
+            ModelRuntime.ML_KIT -> "aicore"
+            ModelRuntime.LLAMA_CPP -> "llama"
+            ModelRuntime.LEAP -> "leap"
+            ModelRuntime.MEDIAPIPE -> "liteRt"
+        }
+        // For LiteRT-LM, append the backend label the SDK actually picked
+        // (NPU/GPU/CPU) so the saved bookmark answers "did acceleration
+        // engage?" without having to grep logcat. The other runtimes don't
+        // expose a comparable concept (AICore is system-managed, llama.cpp
+        // and Leap are CPU-only here), so the suffix only fires for LiteRT.
+        val backendSuffix = (provider as? LiteRtLmModelProvider)
+            ?.currentBackendLabel()
+            ?.let { "[$it]" }
+            .orEmpty()
+        // provider.id is `<runtime-prefix>:<model-id>` (e.g.
+        // `leap:lfm2-1.2b-extract`); strip the prefix so we can substitute
+        // the shorter SDK name without duplicating the runtime label.
+        val model = provider.id.substringAfter(':', missingDelimiterValue = provider.id)
+        // ms below 1s, two-decimal seconds above. Avoids `String.format`
+        // (host-locale-dependent) by doing the math directly.
+        val duration = if (durationMs < 1000) {
+            "${durationMs}ms"
+        } else {
+            val whole = durationMs / 1000
+            val hundredths = (durationMs % 1000) / 10
+            val padded = if (hundredths < 10) "0$hundredths" else "$hundredths"
+            "$whole.${padded}s"
+        }
+        return "$sdk$backendSuffix:$model:$duration"
     }
 
     suspend fun generateDescription(url: String, title: String): Result<String> {
-        val provider = pickAndEmit("description")
-            ?: return Result.failure(IllegalStateException("No ready local AI model"))
-        return provider.generateDescription(url, title)
+        val pick = pickWithReason()
+        val provider = pick.provider
+        if (provider == null) {
+            emitNone("description", pick)
+            return Result.failure(IllegalStateException("No ready local AI model"))
+        }
+        emitPicked("description", provider, pick)
+        return runTimed("description", provider, pick) { provider.generateDescription(url, title) }
     }
 
     suspend fun generateTitle(url: String): Result<String> {
-        val provider = pickAndEmit("title")
-            ?: return Result.failure(IllegalStateException("No ready local AI model"))
-        return provider.generateTitle(url)
+        val pick = pickWithReason()
+        val provider = pick.provider
+        if (provider == null) {
+            emitNone("title", pick)
+            return Result.failure(IllegalStateException("No ready local AI model"))
+        }
+        emitPicked("title", provider, pick)
+        return runTimed("title", provider, pick) { provider.generateTitle(url) }
+    }
+
+    private fun emitPicked(action: String, provider: LocalModelProvider, pick: PickResult) {
+        _events.tryEmit(
+            RouteEvent.Picked(
+                action = action,
+                activeIds = pick.activeIds,
+                readiness = pick.readiness,
+                providerId = provider.id,
+                providerName = provider.displayName,
+                reason = pick.reason,
+            ),
+        )
+    }
+
+    private fun emitNone(action: String, pick: PickResult) {
+        _events.tryEmit(
+            RouteEvent.None(
+                action = action,
+                activeIds = pick.activeIds,
+                readiness = pick.readiness,
+                reason = pick.reason,
+            ),
+        )
+    }
+
+    /**
+     * Times [block] and emits a [RouteEvent.Completed] regardless of how it
+     * exits — normal `Result` (success or failure), or thrown exception
+     * (notably coroutine cancellation, which `runCatching` re-raises). Without
+     * the try/finally, a cancellation would leave the UI strip stuck in
+     * "Running…" forever.
+     *
+     * `inline` is what lets the non-suspending `block` parameter actually call
+     * suspending provider methods — the lambda body is inlined into this
+     * `suspend` function's body, so it runs in a suspending context.
+     *
+     * `nanoTime` is monotonic; `currentTimeMillis` is wall-clock and can jump
+     * backwards on NTP / manual clock changes, producing negative durations.
+     */
+    private suspend inline fun <T> runTimed(
+        action: String,
+        provider: LocalModelProvider,
+        pick: PickResult,
+        block: () -> Result<T>,
+    ): Result<T> {
+        val t0 = System.nanoTime()
+        var success = false
+        try {
+            val result = block()
+            success = result.isSuccess
+            return result
+        } finally {
+            _events.tryEmit(
+                RouteEvent.Completed(
+                    action = action,
+                    activeIds = pick.activeIds,
+                    readiness = pick.readiness,
+                    providerId = provider.id,
+                    providerName = provider.displayName,
+                    durationMs = (System.nanoTime() - t0) / 1_000_000,
+                    success = success,
+                ),
+            )
+        }
     }
 }

@@ -19,6 +19,14 @@ interface LiteRtLmNativeBridge {
     fun isAvailable(): Boolean
 
     /**
+     * Label for the currently loaded backend (`"NPU"` / `"GPU"` / `"CPU"`),
+     * or null if no model is loaded. Surfaced in the debug provenance tag
+     * so the saved bookmark answers "did it run on NPU/GPU/CPU?" at a
+     * glance, without having to dig through logcat.
+     */
+    fun currentBackendLabel(): String? = null
+
+    /**
      * Loads the `.litertlm` bundle at [absolutePath] into memory. Idempotent
      * per path: a repeated call with the same path is a no-op; a different
      * path causes the previously-loaded model to be unloaded first.
