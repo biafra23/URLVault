@@ -193,10 +193,10 @@ class LocalModelRouter(
             provider.generateTags(url, title, content)
         }
         val durationMs = (System.nanoTime() - t0) / 1_000_000
-        // DEBUG-only: append a synthetic tag identifying which SDK ran and how
-        // long it took, so a glance at the saved bookmark tells you both at
-        // once. Stripped in release builds so synced Bitwarden entries never
-        // carry `dbg:…` tags into production.
+        // DEBUG-only: append a synthetic tag identifying which SDK ran and
+        // how long it took (e.g. `leap@2.34s`), so a glance at the saved
+        // bookmark tells you both at once. Stripped in release builds so
+        // synced Bitwarden entries never carry the marker into production.
         return if (BuildConfig.DEBUG) {
             result.map { it + debugProvenanceTag(provider, durationMs) }
         } else {
@@ -221,7 +221,7 @@ class LocalModelRouter(
             val padded = if (hundredths < 10) "0$hundredths" else "$hundredths"
             "$whole.${padded}s"
         }
-        return "dbg:$sdk@$duration"
+        return "$sdk@$duration"
     }
 
     suspend fun generateDescription(url: String, title: String): Result<String> {
