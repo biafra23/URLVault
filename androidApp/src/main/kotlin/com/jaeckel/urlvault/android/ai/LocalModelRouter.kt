@@ -193,9 +193,10 @@ class LocalModelRouter(
             provider.generateTags(url, title, content)
         }
         val durationMs = (System.nanoTime() - t0) / 1_000_000
-        // DEBUG-only: append a synthetic tag identifying which SDK ran and
-        // how long it took (e.g. `leap@2.34s`), so a glance at the saved
-        // bookmark tells you both at once. Stripped in release builds so
+        // DEBUG-only: append a synthetic tag of the form
+        // `<sdk>:<model>:<duration>` (e.g. `leap:lfm2-1.2b-extract:2.34s`)
+        // so a glance at the saved bookmark tells you SDK, model variant,
+        // and how long generation took. Stripped in release builds so
         // synced Bitwarden entries never carry the marker into production.
         return if (BuildConfig.DEBUG) {
             result.map { it + debugProvenanceTag(provider, durationMs) }
@@ -211,6 +212,10 @@ class LocalModelRouter(
             ModelRuntime.LEAP -> "leap"
             ModelRuntime.MEDIAPIPE -> "liteRt"
         }
+        // provider.id is `<runtime-prefix>:<model-id>` (e.g.
+        // `leap:lfm2-1.2b-extract`); strip the prefix so we can substitute
+        // the shorter SDK name without duplicating the runtime label.
+        val model = provider.id.substringAfter(':', missingDelimiterValue = provider.id)
         // ms below 1s, two-decimal seconds above. Avoids `String.format`
         // (host-locale-dependent) by doing the math directly.
         val duration = if (durationMs < 1000) {
@@ -221,7 +226,7 @@ class LocalModelRouter(
             val padded = if (hundredths < 10) "0$hundredths" else "$hundredths"
             "$whole.${padded}s"
         }
-        return "$sdk@$duration"
+        return "$sdk:$model:$duration"
     }
 
     suspend fun generateDescription(url: String, title: String): Result<String> {
