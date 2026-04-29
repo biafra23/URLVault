@@ -30,18 +30,23 @@ fun interface LiteRtLmBackendStrategy {
 
 /**
  * NPU first when the device's `nativeLibraryDir` is non-blank (vendor libs
- * are loaded from there for QCS / Pixel chips), then GPU, then CPU.
+ * are loaded from there for QCS / Pixel chips), then **CPU**, then GPU.
  *
- * GPU sometimes works (newer Tensor / Snapdragon with proper OpenCL or
- * WebGPU drivers — e.g. Pixel 10 Pro Fold) and sometimes doesn't (Pixel
- * 7a / Tensor G2 throws `Can not find OpenCL library on this device` once
- * generation starts, because the SDK auto-selects the GPU sampler from
- * the engine backend and there is no public knob to override). The
- * runtime self-heal in [LiteRtLmSdkBridge.runCollect] catches that
- * failure, blocklists the broken backend for the rest of the session,
- * and lets the *next* call reload on the remaining candidates (typically
- * CPU). The cost is one failed first call on devices where GPU breaks;
- * acceptable in exchange for keeping GPU acceleration where it works.
+ * GPU is intentionally last. On every Pixel Tensor we've tested (G2 on
+ * Pixel 7a, G5 on Pixel 10 Pro Fold) the GPU engine loads but the first
+ * generate call throws `Can not find OpenCL library on this device` —
+ * LiteRT-LM 0.10.x auto-selects an OpenCL Top-K sampler from the engine
+ * backend and Tensor doesn't ship OpenCL drivers. The SDK has no public
+ * knob to use the CPU sampler with a GPU engine, so on Tensor the only
+ * way to get a working sampler is to run the engine on CPU too. Putting
+ * CPU before GPU avoids a wasted ~5–10 s GPU load + failed generate
+ * cycle on every cold start on those devices.
+ *
+ * Cost: on a hypothetical device with working OpenCL drivers we'd miss
+ * the GPU speedup. We don't currently have such a test device and the
+ * "correct on Tensor" trade is much more important. The runtime
+ * self-heal in [LiteRtLmSdkBridge.runCollect] still catches the OpenCL
+ * error if a custom strategy puts GPU first.
  */
 object DefaultBackendStrategy : LiteRtLmBackendStrategy {
     override fun candidates(nativeLibDir: String): List<Pair<String, Backend>> {
@@ -49,9 +54,9 @@ object DefaultBackendStrategy : LiteRtLmBackendStrategy {
         if (nativeLibDir.isNotBlank()) {
             list.add("NPU" to Backend.NPU(nativeLibDir))
         }
-        list.add("GPU" to Backend.GPU())
         // null = default thread count picked by the runtime.
         list.add("CPU" to Backend.CPU(null))
+        list.add("GPU" to Backend.GPU())
         return list
     }
 }
