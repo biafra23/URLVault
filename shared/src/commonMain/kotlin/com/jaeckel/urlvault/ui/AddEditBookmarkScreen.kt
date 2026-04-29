@@ -236,6 +236,16 @@ fun AddEditBookmarkScreen(
             is AIGenerationState.Error -> {
                 aiDescriptionError = aiDescriptionState.message
                 onAiDescriptionConsumed()
+                // Description failed — but tags are an independent extraction
+                // and often succeed on the same input (observed: LEAP returned
+                // degenerate punctuation as the description while producing
+                // clean tags for the same URL). Fire tags from URL + title
+                // alone instead of giving up entirely.
+                val currentTarget = normalizeUrlForAi(url)
+                if (aiCoreEnabled && onAiGenerateTags != null && currentTarget != null) {
+                    aiTagError = null
+                    onAiGenerateTags(currentTarget, title, "")
+                }
             }
             else -> {}
         }
