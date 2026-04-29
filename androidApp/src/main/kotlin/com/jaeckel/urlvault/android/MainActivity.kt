@@ -2,11 +2,13 @@ package com.jaeckel.urlvault.android
 
 import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.LaunchedEffect
@@ -16,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import com.jaeckel.urlvault.ai.AiProviderIds
 import com.jaeckel.urlvault.ai.ModelCatalog
 import com.jaeckel.urlvault.ai.ModelCatalogEntry
@@ -30,6 +33,8 @@ import com.jaeckel.urlvault.android.sync.AndroidBitwardenPreferences
 import com.jaeckel.urlvault.model.Bookmark
 import com.jaeckel.urlvault.sync.BitwardenSyncService
 import com.jaeckel.urlvault.ui.AddEditBookmarkScreen
+import com.jaeckel.urlvault.ui.AiActivityState
+import com.jaeckel.urlvault.ui.AiActivityStatusLine
 import com.jaeckel.urlvault.ui.BookmarkListScreen
 import com.jaeckel.urlvault.ui.ModelComparisonScreen
 import com.jaeckel.urlvault.ui.ModelStatusBanner
@@ -99,26 +104,45 @@ class MainActivity : ComponentActivity() {
                     aiCoreService.initialize()
                 }
 
-                // DEBUG-only: surface which provider actually served each AI call
-                // so we can confirm an "activated" model is what's being used vs.
-                // silently falling back to AICore.
+                // DEBUG-only: surface which provider actually served each AI
+                // call (and how long it took) in a thin auto-hiding strip at
+                // the bottom of the screen. Replaces a much louder Toast that
+                // obscured the form while the user was trying to interact
+                // with it.
+                var aiActivity by remember { mutableStateOf<AiActivityState>(AiActivityState.Hidden) }
                 if (BuildConfig.DEBUG) {
                     LaunchedEffect(Unit) {
                         localModelRouter.events.collect { event ->
-                            val readinessLine = event.readiness.joinToString { (id, r) ->
-                                "${id.substringAfter(':')}=${if (r) "✓" else "✗"}"
-                            }
-                            val activeLine = if (event.activeIds.isEmpty()) "active=none"
-                                else "active=${event.activeIds.joinToString { it.substringAfter(':') }}"
-                            val head = when (event) {
+                            aiActivity = when (event) {
                                 is LocalModelRouter.RouteEvent.Picked ->
-                                    "AI ${event.action}: ${event.providerName}\n${event.reason}"
+                                    AiActivityState.Running(event.action, event.providerName)
+                                is LocalModelRouter.RouteEvent.Completed ->
+                                    AiActivityState.Completed(
+                                        action = event.action,
+                                        providerName = event.providerName,
+                                        durationMs = event.durationMs,
+                                        success = event.success,
+                                    )
                                 is LocalModelRouter.RouteEvent.None ->
-                                    "AI ${event.action}: NO PROVIDER\n${event.reason}"
+                                    AiActivityState.NoProvider(event.action, event.reason)
                             }
-                            val text = "$head\n$activeLine\n$readinessLine"
-                            Toast.makeText(this@MainActivity, text, Toast.LENGTH_LONG).show()
                         }
+                    }
+                }
+                // Auto-hide once the user has had time to read the result.
+                // Running stays visible for as long as the LLM is working
+                // (we only transition out of it when Completed/None arrive).
+                LaunchedEffect(aiActivity) {
+                    when (aiActivity) {
+                        is AiActivityState.Completed -> {
+                            delay(3_500)
+                            aiActivity = AiActivityState.Hidden
+                        }
+                        is AiActivityState.NoProvider -> {
+                            delay(5_000)
+                            aiActivity = AiActivityState.Hidden
+                        }
+                        else -> {}
                     }
                 }
 
@@ -153,10 +177,18 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Column(
-                    // enableEdgeToEdge() lets content draw under the status
-                    // bar; without statusBarsPadding the banner would land
-                    // behind the system clock / battery icons.
-                    modifier = Modifier.statusBarsPadding(),
+                    // enableEdgeToEdge() lets content draw under the system
+                    // bars; the two *barsPadding modifiers reserve space at
+                    // top and bottom AND consume the corresponding insets so
+                    // descendants (notably the screens' Material Scaffolds
+                    // with BottomAppBar) don't double-pad. Without this, the
+                    // BottomAppBar kept its own gesture-pill padding even
+                    // when the AI activity strip slid in below it, making
+                    // the button row's box visibly grow.
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding(),
                 ) {
                     // Persistent status banner — surfaces the active model
                     // warming up or any in-flight download regardless of which
@@ -169,6 +201,12 @@ class MainActivity : ComponentActivity() {
                         catalog = ModelCatalog.builtIn + customEntries,
                         aiCoreId = AiProviderIds.AICORE,
                     )
+                    // Wrap the active screen in a weighted Box so the AI
+                    // activity strip below can claim its natural height
+                    // without overlapping the screen's own bottom buttons —
+                    // when the strip is visible the screen's available
+                    // height shrinks and its Save / Cancel row reflows up.
+                    Box(modifier = Modifier.weight(1f).fillMaxSize()) {
                 when (val screen = currentScreen) {
                     is Screen.List -> BookmarkListScreen(
                         viewModel = bookmarkViewModel,
@@ -302,7 +340,19 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                }   // close Column wrapping the banner + screen content
+                }   // close weighted Box wrapping the screen
+
+                    // DEBUG-only AI activity strip. Last child of the Column
+                    // so when AnimatedVisibility expands it from 0-height
+                    // the screen above is pushed up — its Save button stays
+                    // visible. The outer Column already consumed the nav
+                    // bar inset, so the strip needs no padding of its own.
+                    if (BuildConfig.DEBUG) {
+                        AiActivityStatusLine(
+                            state = aiActivity,
+                        )
+                    }
+                }   // close outer Column
             }
         }
     }

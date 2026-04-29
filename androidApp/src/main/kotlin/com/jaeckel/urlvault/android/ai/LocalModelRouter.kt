@@ -51,6 +51,23 @@ class LocalModelRouter(
             override val readiness: List<Pair<String, Boolean>>,
             val reason: String,
         ) : RouteEvent()
+
+        /**
+         * Fired by `generateXxx` *after* the provider call returns or throws.
+         * Carries the wall-clock duration so a UI status line can show
+         * "tags via Liquid LFM2 Extract — 1247 ms". Note that for `title` on
+         * pages with a usable `<title>`/`og:title`, no LLM ran — duration
+         * reflects only the page fetch, which is intentional.
+         */
+        data class Completed(
+            override val action: String,
+            override val activeIds: Set<String>,
+            override val readiness: List<Pair<String, Boolean>>,
+            val providerId: String,
+            val providerName: String,
+            val durationMs: Long,
+            val success: Boolean,
+        ) : RouteEvent()
     }
 
     private val _events = MutableSharedFlow<RouteEvent>(extraBufferCapacity = 16)
@@ -109,33 +126,6 @@ class LocalModelRouter(
         return PickResult(fallback, reason, active, readinessSummary)
     }
 
-    private suspend fun pickAndEmit(action: String): LocalModelProvider? {
-        val result = pickWithReason()
-        val provider = result.provider
-        if (provider != null) {
-            _events.tryEmit(
-                RouteEvent.Picked(
-                    action = action,
-                    activeIds = result.activeIds,
-                    readiness = result.readiness,
-                    providerId = provider.id,
-                    providerName = provider.displayName,
-                    reason = result.reason,
-                ),
-            )
-        } else {
-            _events.tryEmit(
-                RouteEvent.None(
-                    action = action,
-                    activeIds = result.activeIds,
-                    readiness = result.readiness,
-                    reason = result.reason,
-                ),
-            )
-        }
-        return provider
-    }
-
     /**
      * Whether at least one registered provider can serve a request right now.
      * Used by the UI to decide whether to drive bookmark generation through
@@ -181,20 +171,81 @@ class LocalModelRouter(
     }
 
     suspend fun generateTags(url: String, title: String, content: String): Result<List<String>> {
-        val provider = pickAndEmit("tags")
-            ?: return Result.failure(IllegalStateException("No ready local AI model"))
-        return provider.generateTags(url, title, content)
+        val pick = pickWithReason()
+        val provider = pick.provider
+        if (provider == null) {
+            emitNone("tags", pick)
+            return Result.failure(IllegalStateException("No ready local AI model"))
+        }
+        emitPicked("tags", provider, pick)
+        return runTimed("tags", provider, pick) { provider.generateTags(url, title, content) }
     }
 
     suspend fun generateDescription(url: String, title: String): Result<String> {
-        val provider = pickAndEmit("description")
-            ?: return Result.failure(IllegalStateException("No ready local AI model"))
-        return provider.generateDescription(url, title)
+        val pick = pickWithReason()
+        val provider = pick.provider
+        if (provider == null) {
+            emitNone("description", pick)
+            return Result.failure(IllegalStateException("No ready local AI model"))
+        }
+        emitPicked("description", provider, pick)
+        return runTimed("description", provider, pick) { provider.generateDescription(url, title) }
     }
 
     suspend fun generateTitle(url: String): Result<String> {
-        val provider = pickAndEmit("title")
-            ?: return Result.failure(IllegalStateException("No ready local AI model"))
-        return provider.generateTitle(url)
+        val pick = pickWithReason()
+        val provider = pick.provider
+        if (provider == null) {
+            emitNone("title", pick)
+            return Result.failure(IllegalStateException("No ready local AI model"))
+        }
+        emitPicked("title", provider, pick)
+        return runTimed("title", provider, pick) { provider.generateTitle(url) }
+    }
+
+    private fun emitPicked(action: String, provider: LocalModelProvider, pick: PickResult) {
+        _events.tryEmit(
+            RouteEvent.Picked(
+                action = action,
+                activeIds = pick.activeIds,
+                readiness = pick.readiness,
+                providerId = provider.id,
+                providerName = provider.displayName,
+                reason = pick.reason,
+            ),
+        )
+    }
+
+    private fun emitNone(action: String, pick: PickResult) {
+        _events.tryEmit(
+            RouteEvent.None(
+                action = action,
+                activeIds = pick.activeIds,
+                readiness = pick.readiness,
+                reason = pick.reason,
+            ),
+        )
+    }
+
+    private suspend inline fun <T> runTimed(
+        action: String,
+        provider: LocalModelProvider,
+        pick: PickResult,
+        block: () -> Result<T>,
+    ): Result<T> {
+        val t0 = System.currentTimeMillis()
+        val result = block()
+        _events.tryEmit(
+            RouteEvent.Completed(
+                action = action,
+                activeIds = pick.activeIds,
+                readiness = pick.readiness,
+                providerId = provider.id,
+                providerName = provider.displayName,
+                durationMs = System.currentTimeMillis() - t0,
+                success = result.isSuccess,
+            ),
+        )
+        return result
     }
 }
