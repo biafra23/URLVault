@@ -70,6 +70,16 @@ class LiteRtLmSdkBridge(
     private var currentPath: String? = null
     private var currentBackend: String? = null
 
+    /**
+     * Backends that *initialised successfully* but then failed at runtime
+     * during `generateContent` (e.g. Pixel 7a's Tensor G2 GPU loads fine but
+     * the Top-K sampler tries to dlopen OpenCL and the Tensor stack has none,
+     * so `runCollect` throws `Can not find OpenCL library on this device`).
+     * Filtered out of subsequent loads in this process so the bridge doesn't
+     * keep redoing the same dance every call. Cleared on app process death.
+     */
+    private val runtimeBlockedBackends = mutableSetOf<String>()
+
     private val classLoaderProbe: Boolean by lazy {
         try {
             Class.forName("com.google.ai.edge.litertlm.Engine")
@@ -89,67 +99,85 @@ class LiteRtLmSdkBridge(
                 Log.v(TAG, "load: already loaded $absolutePath, no-op")
                 return
             }
-            withContext(Dispatchers.IO) {
-                engine?.let {
-                    Log.i(TAG, "load: switching model — closing previous $currentPath")
-                    runCatching { it.close() }
-                }
-                engine = null
-                currentPath = null
-                currentBackend = null
+            loadInternalLocked(absolutePath)
+        }
+    }
 
-                val cacheDir = File(context.cacheDir, "litertlm").also { it.mkdirs() }
-                val nativeLibDir = context.applicationInfo.nativeLibraryDir.orEmpty()
-                val backendsToTry = backendStrategy.candidates(nativeLibDir)
+    /**
+     * Same logic as [load] but assumes the caller already holds [mutex].
+     * Exists so [runCollect] can reload the engine on the next backend after
+     * an OpenCL-style runtime failure without dropping and re-acquiring the
+     * mutex (which would let another caller race in mid-recovery).
+     */
+    private suspend fun loadInternalLocked(absolutePath: String) {
+        withContext(Dispatchers.IO) {
+            engine?.let {
+                Log.i(TAG, "load: switching model — closing previous $currentPath")
+                runCatching { it.close() }
+            }
+            engine = null
+            currentPath = null
+            currentBackend = null
 
-                var lastError: Throwable? = null
-                for ((label, backend) in backendsToTry) {
-                    val t0 = System.currentTimeMillis()
-                    Log.i(TAG, "load: trying backend=$label for $absolutePath")
-                    // visionBackend / audioBackend left null: every entry in
-                    // ModelCatalog is text-only. Setting them to `backend`
-                    // tells the engine to enable those modalities, and
-                    // initialize() then fails with `NOT_FOUND:
-                    // TF_LITE_VISION_ENCODER not found in the model.` for
-                    // text-only bundles (FunctionGemma 270M, Gemma 3 270M,
-                    // Qwen3 0.6B, etc.). When a true multi-modal Gemma 4 E2B
-                    // bundle is added later, switch this on per-entry.
-                    val candidate = Engine(
-                        EngineConfig(
-                            modelPath = absolutePath,
-                            backend = backend,
-                            visionBackend = null,
-                            audioBackend = null,
-                            maxNumTokens = null,
-                            maxNumImages = null,
-                            cacheDir = cacheDir.absolutePath,
-                        ),
-                    )
-                    val initOk = runCatching { candidate.initialize() }
-                    if (initOk.isSuccess) {
-                        engine = candidate
-                        currentPath = absolutePath
-                        currentBackend = label
-                        Log.i(
-                            TAG,
-                            "load: ready on $label in ${System.currentTimeMillis() - t0}ms — $absolutePath",
-                        )
-                        return@withContext
-                    } else {
-                        lastError = initOk.exceptionOrNull()
-                        Log.w(
-                            TAG,
-                            "load: backend=$label failed (${lastError?.message}); trying next",
-                        )
-                        runCatching { candidate.close() }
-                    }
-                }
-                val tried = backendsToTry.joinToString(" → ") { it.first }
+            val cacheDir = File(context.cacheDir, "litertlm").also { it.mkdirs() }
+            val nativeLibDir = context.applicationInfo.nativeLibraryDir.orEmpty()
+            val backendsToTry = backendStrategy.candidates(nativeLibDir)
+                .filterNot { (label, _) -> label in runtimeBlockedBackends }
+
+            if (backendsToTry.isEmpty()) {
                 throw IllegalStateException(
-                    "LiteRT-LM failed on every backend ($tried). Last error: ${lastError?.message}",
-                    lastError,
+                    "LiteRT-LM has no usable backends left for this session " +
+                        "(all blocked by prior runtime failures: $runtimeBlockedBackends)",
                 )
             }
+
+            var lastError: Throwable? = null
+            for ((label, backend) in backendsToTry) {
+                val t0 = System.currentTimeMillis()
+                Log.i(TAG, "load: trying backend=$label for $absolutePath")
+                // visionBackend / audioBackend left null: every entry in
+                // ModelCatalog is text-only. Setting them to `backend`
+                // tells the engine to enable those modalities, and
+                // initialize() then fails with `NOT_FOUND:
+                // TF_LITE_VISION_ENCODER not found in the model.` for
+                // text-only bundles (FunctionGemma 270M, Gemma 3 270M,
+                // Qwen3 0.6B, etc.). When a true multi-modal Gemma 4 E2B
+                // bundle is added later, switch this on per-entry.
+                val candidate = Engine(
+                    EngineConfig(
+                        modelPath = absolutePath,
+                        backend = backend,
+                        visionBackend = null,
+                        audioBackend = null,
+                        maxNumTokens = null,
+                        maxNumImages = null,
+                        cacheDir = cacheDir.absolutePath,
+                    ),
+                )
+                val initOk = runCatching { candidate.initialize() }
+                if (initOk.isSuccess) {
+                    engine = candidate
+                    currentPath = absolutePath
+                    currentBackend = label
+                    Log.i(
+                        TAG,
+                        "load: ready on $label in ${System.currentTimeMillis() - t0}ms — $absolutePath",
+                    )
+                    return@withContext
+                } else {
+                    lastError = initOk.exceptionOrNull()
+                    Log.w(
+                        TAG,
+                        "load: backend=$label failed (${lastError?.message}); trying next",
+                    )
+                    runCatching { candidate.close() }
+                }
+            }
+            val tried = backendsToTry.joinToString(" → ") { it.first }
+            throw IllegalStateException(
+                "LiteRT-LM failed on every backend ($tried). Last error: ${lastError?.message}",
+                lastError,
+            )
         }
     }
 
@@ -176,6 +204,37 @@ class LiteRtLmSdkBridge(
     }
 
     private suspend fun runCollect(text: String, maxTokens: Int): String {
+        return try {
+            runCollectOnce(text, maxTokens)
+        } catch (t: Throwable) {
+            // Pixel 7a / Tensor G2: the GPU backend initialises fine but
+            // generation throws `Can not find OpenCL library on this device`
+            // because LiteRT-LM's Top-K sampler dlopens OpenCL even on the
+            // WebGPU path. Block this backend for the rest of the session
+            // and reload on the next one (typically CPU). We hold the
+            // mutex throughout, so no other call can race in.
+            val brokenBackend = currentBackend
+            val path = currentPath
+            if (brokenBackend != null && path != null && isRecoverableRuntimeError(t)) {
+                Log.w(
+                    TAG,
+                    "Recovering from $brokenBackend runtime failure (${t.message?.take(120)}) — " +
+                        "blocklisting and reloading on next backend",
+                )
+                runtimeBlockedBackends += brokenBackend
+                runCatching { engine?.close() }
+                engine = null
+                currentPath = null
+                currentBackend = null
+                loadInternalLocked(path)
+                runCollectOnce(text, maxTokens)
+            } else {
+                throw t
+            }
+        }
+    }
+
+    private suspend fun runCollectOnce(text: String, maxTokens: Int): String {
         val current = engine ?: error("LiteRT-LM: no model loaded")
         // maxNumTokens here is advisory — the SDK still respects the config-
         // level cap. We pass through whatever sampling the user requests.
@@ -202,6 +261,16 @@ class LiteRtLmSdkBridge(
         } finally {
             runCatching { session.close() }
         }
+    }
+
+    /**
+     * Recoverable = the engine loaded but a runtime feature it tried to use
+     * isn't on this device. Right now the only known case is OpenCL missing
+     * on Pixel Tensor; widen as we hit more.
+     */
+    private fun isRecoverableRuntimeError(t: Throwable): Boolean {
+        val msg = (t.message ?: "").lowercase()
+        return "opencl" in msg || "open cl" in msg
     }
 
     override suspend fun unload() {
