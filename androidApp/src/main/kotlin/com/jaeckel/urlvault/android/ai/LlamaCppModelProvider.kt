@@ -77,8 +77,19 @@ class LlamaCppModelProvider(
 
     override suspend fun generateDescription(url: String, title: String): Result<String> = runCatching {
         val pageContent = runCatching { contentExtractor.extract(url) }.getOrNull()
-        val pageSummary = pageContent?.bestSummary(MAX_PAGE_CONTENT_LENGTH).orEmpty()
 
+        // Same short-circuit as generateTitle: prefer the publisher's own
+        // description (og:description / <meta name="description">) over a
+        // model rewrite. The GGUF model is most useful when the page has
+        // *no* metadata-provided summary; otherwise we just spend several
+        // seconds rewriting a 1-2 sentence string into a slightly worse
+        // 1-2 sentence string.
+        val nativeDesc = pageContent?.let { it.ogDescription ?: it.metaDescription }
+        if (!nativeDesc.isNullOrBlank()) {
+            return@runCatching validateDescription(nativeDesc.trim())
+        }
+
+        val pageSummary = pageContent?.visibleText.orEmpty().take(MAX_PAGE_CONTENT_LENGTH)
         val prompt = buildString {
             appendLine("Write a 1-2 sentence factual description for this bookmark.")
             appendLine("Return ONLY the description, nothing else.")
@@ -87,7 +98,7 @@ class LlamaCppModelProvider(
             appendLine("URL: $url")
             if (title.isNotBlank()) appendLine("Title: $title")
             if (pageSummary.isNotBlank()) {
-                appendLine("Page summary: $pageSummary")
+                appendLine("Page text: $pageSummary")
             } else {
                 appendLine("If you cannot determine what the page is about, respond with: Unable to generate description.")
             }

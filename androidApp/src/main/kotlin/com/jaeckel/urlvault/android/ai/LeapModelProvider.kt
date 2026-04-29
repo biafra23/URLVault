@@ -114,7 +114,24 @@ class LeapModelProvider(
 
     override suspend fun generateDescription(url: String, title: String): Result<String> = runCatching {
         val pageContent = runCatching { contentExtractor.extract(url) }.getOrNull()
-        val pageSummary = pageContent?.bestSummary(MAX_PAGE_CONTENT_LENGTH).orEmpty()
+
+        // Short-circuit on a page-provided description — same shape as
+        // generateTitle. Two reasons this matters specifically for LFM2-
+        // Extract:
+        //  - it's an *extraction* fine-tune, not a generation one. Asking
+        //    it to rewrite an already-good summary just wastes a model
+        //    call;
+        //  - on pages where the supplied text has nothing extractable, the
+        //    grammar's `minLength: 1` cornering produces degenerate
+        //    sequences like `:","",..."` (see `looksDegenerate`). Skipping
+        //    the LLM entirely when a usable description is already
+        //    available eliminates that failure mode for those pages.
+        val nativeDesc = pageContent?.let { it.ogDescription ?: it.metaDescription }
+        if (!nativeDesc.isNullOrBlank()) {
+            return@runCatching validateDescription(nativeDesc.trim())
+        }
+
+        val pageSummary = pageContent?.visibleText.orEmpty().take(MAX_PAGE_CONTENT_LENGTH)
 
         val schema = """
             {
